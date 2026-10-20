@@ -1,0 +1,24 @@
+# Operator overrides for the generated dealer registry (requirements 7.1, F25).
+#
+# The registry itself is built by `carshop registry refresh` from the BMW USA dealer locator
+# (every Texas BMW dealer) plus automatic inventory-URL discovery. Nothing here adds or
+# approves a dealer. An entry only overrides what discovery found for one center number:
+# the hostname (when the locator prints none or the wrong one), the X5 start URL, the path
+# prefixes, the platform, or sticker hosts.
+#
+# Every entry is a privileged edit (section 3): `operator` and `set_at` are required and are
+# written to the dealer row's notes and to audit_events when the registry is applied.
+#
+# Center numbers are the locator's `centerID`; run `carshop registry show` to list them.
+#
+# Example (commented out):
+# overrides:
+#   - center_number: "50923"          # BMW of Plano (locator prints no website)
+#     operator: owner
+#     set_at: "2026-10-20T00:00:00+00:00"
+#     hostname: www.example-group-site.com
+#     start_url: https://www.example-group-site.com/new-vehicles/bmw/x5/?store=plano
+#     path_prefixes: ["/new-vehicles/bmw/", "/inventory/"]
+#     platform: dealer_inspire
+#     notes: group site; store filter keeps Plano cars under Plano
+overrides: []

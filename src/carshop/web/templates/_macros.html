@@ -1,0 +1,36 @@
+{% macro tri(status) -%}
+  <span class="badge {{ 'b-yes' if status == 'YES' else 'b-no' if status == 'NO' else 'b-unknown' }}">{{ 'Yes' if status == 'YES' else 'No' if status == 'NO' else 'Unknown' }}</span>
+{%- endmacro %}
+
+{% macro status(st) -%}
+  <span class="badge b-{{ st | lower }}">{{ st | replace('_', ' ') }}</span>
+{%- endmacro %}
+
+{% macro meter(value, color) -%}
+  <div class="flex items-center gap-2">
+    <div class="meter w-24"><div style="width: {{ value }}%; background: {{ color }}"></div></div>
+    <span class="text-xs tabular-nums text-slate-300 w-8">{{ value }}</span>
+  </div>
+{%- endmacro %}
+
+{% macro unit_row(u, show_fit=False) -%}
+  <tr class="row-link border-t border-slate-800/70 cursor-pointer" onclick="window.location='/vin/{{ u.vin }}'">
+    <td class="font-mono text-xs text-sky-300">{{ u.vin }}</td>
+    <td><div>{{ u.row.dealer_name }}</div><div class="text-[11px] text-slate-500">{{ u.row.city }}{% if u.row.stock %} · #{{ u.row.stock }}{% endif %}</div></td>
+    <td class="tabular-nums text-right font-semibold {{ 'text-emerald-300' if u.row.comparison_price_cents else 'text-slate-500' }}">{{ u.price_label }}</td>
+    <td class="tabular-nums text-right text-slate-400">{{ u.row.msrp_cents | money }}</td>
+    <td><div class="text-sm">{{ u.row.exterior_raw or '—' }}</div><div class="text-[11px] text-slate-500">{{ u.row.exterior_code or 'unmapped' }}</div></td>
+    <td><div class="text-sm">{{ u.row.interior_raw or '—' }}</div><div class="text-[11px] text-slate-500">{{ u.row.interior_code or 'unknown' }}</div></td>
+    <td>{{ tri(u.feat('DAP')) }}</td>
+    <td>{% if u.row.m_sport %}<span class="badge b-info">M Sport</span>{% else %}<span class="text-slate-600 text-xs">—</span>{% endif %}</td>
+    <td class="text-xs">
+      {% if u.row.in_transit %}<span class="badge b-partial">in transit</span>{% else %}<span class="text-slate-400">on lot</span>{% endif %}
+      {% if u.row.odometer_miles is not none %}<div class="text-[11px] text-slate-500">{{ u.row.odometer_miles }} mi</div>{% endif %}
+    </td>
+    {% if show_fit %}
+    <td>{{ meter(u.fit_score, '#38bdf8') }}</td>
+    <td>{{ meter(u.confidence_score, '#a78bfa') }}</td>
+    {% endif %}
+    <td class="text-[11px] text-slate-500 whitespace-nowrap">{{ u.row.fetched_at | age }}</td>
+  </tr>
+{%- endmacro %}

@@ -1,0 +1,143 @@
+{
+ "responseContent": {
+  "responseCode": "200",
+  "responseMessage": "Success"
+ },
+ "dataContent": {
+  "dealerDetails": {
+   "zipCode": "76801",
+   "dealerDetailsObjects": [
+    {
+     "centerID": "50923",
+     "agCode": "50923",
+     "newVehicleSales": [
+      {
+       "agCode": "50923",
+       "dealerName": "BMW of Plano",
+       "address": [
+        {
+         "lineOne": "6800 Dallas Parkway",
+         "lineTwo": "BMW of Plano",
+         "city": "Plano",
+         "state": "TX",
+         "zipcode": "75024-0000"
+        }
+       ],
+       "distance": "157.32659923105885",
+       "longitude": "-96.821157",
+       "latitude": "33.0664464",
+       "dealerURL": "",
+       "phoneNumber": "2147782600",
+       "marketName": "Dallas"
+      }
+     ],
+     "service": []
+    },
+    {
+     "centerID": "43552",
+     "agCode": "43552",
+     "newVehicleSales": [
+      {
+       "agCode": "43552",
+       "dealerName": "BMW of Tyler",
+       "address": [
+        {
+         "lineOne": "2401 W Southwest Loop 323",
+         "lineTwo": "BMW of Tyler",
+         "city": "Tyler",
+         "state": "TX",
+         "zipcode": "75701-9208"
+        }
+       ],
+       "distance": "217.32115093503603",
+       "longitude": "-95.33071",
+       "latitude": "32.3043",
+       "dealerURL": "https://www.bmwoftyler.com/",
+       "phoneNumber": "9035617049",
+       "marketName": "Dallas"
+      }
+     ],
+     "service": []
+    },
+    {
+     "centerID": "10022",
+     "agCode": "10022",
+     "newVehicleSales": [
+      {
+       "agCode": "10022",
+       "dealerName": "Cardenas BMW",
+       "address": [
+        {
+         "lineOne": "210 N Loop 499",
+         "lineTwo": "Cardenas BMW",
+         "city": "Harlingen",
+         "state": "TX",
+         "zipcode": "78550-2508"
+        }
+       ],
+       "distance": "387.9329946560671",
+       "longitude": "-97.66255",
+       "latitude": "26.19166",
+       "dealerURL": "www.cardenasbmw.com",
+       "phoneNumber": "9564252400",
+       "marketName": "Houston"
+      }
+     ],
+     "service": []
+    },
+    {
+     "centerID": "35071",
+     "agCode": "86449",
+     "newVehicleSales": [
+      {
+       "agCode": "86449",
+       "dealerName": "Jackie Cooper Imports",
+       "address": [
+        {
+         "lineOne": "14145 Broadway Ext",
+         "lineTwo": "Jackie Cooper Imports",
+         "city": "Edmond",
+         "state": "OK",
+         "zipcode": "73013-4120"
+        }
+       ],
+       "distance": "284.16218944578344",
+       "longitude": "-97.49381",
+       "latitude": "35.61407",
+       "dealerURL": "https://www.cooperbmw.com",
+       "phoneNumber": "8665975676",
+       "marketName": "Dallas"
+      }
+     ],
+     "service": []
+    },
+    {
+     "centerID": "50923",
+     "agCode": "50923",
+     "newVehicleSales": [
+      {
+       "agCode": "50923",
+       "dealerName": "BMW of Plano",
+       "address": [
+        {
+         "lineOne": "6800 Dallas Parkway",
+         "lineTwo": "BMW of Plano",
+         "city": "Plano",
+         "state": "TX",
+         "zipcode": "75024-0000"
+        }
+       ],
+       "distance": "157.32659923105885",
+       "longitude": "-96.821157",
+       "latitude": "33.0664464",
+       "dealerURL": "",
+       "phoneNumber": "2147782600",
+       "marketName": "Dallas"
+      }
+     ],
+     "service": []
+    }
+   ]
+  }
+ }
+}

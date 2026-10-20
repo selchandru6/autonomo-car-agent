@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block heading %}Review queue · {{ items | length }} open{% endblock %}
+{% block content %}
+
+<section class="glass rounded-2xl p-5">
+  <h2 class="font-semibold">Items awaiting an operator decision</h2>
+  <p class="text-xs text-slate-400 mt-1">Rows flagged PENDING_REVIEW are excluded from screens, exports and digests until decided. Decisions are audited and never overwrite the original extraction.</p>
+  <div class="mt-4 space-y-3">
+    {% for it in items %}
+    <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-4 grid md:grid-cols-[1fr_auto] gap-4">
+      <div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="badge b-partial">{{ it.issue }}</span>
+          <span class="font-medium">{{ it.dealer_name }}</span>
+          {% if it.vin %}<a class="font-mono text-xs text-sky-300 hover:underline" href="/vin/{{ it.vin }}">{{ it.vin }}</a>{% endif %}
+          <span class="text-[11px] text-slate-500">run {{ it.run_id }} · {{ it.created_at | age }}</span>
+        </div>
+        <div class="text-sm text-slate-300 mt-2">{{ it.issue | replace('_', ' ') | capitalize }} — the extraction stays as observed; decide whether this row may be counted.</div>
+      </div>
+      <form method="post" action="/review/{{ it.item_id }}" class="flex flex-col gap-2 text-xs min-w-[14rem]">
+        <input name="operator_id" placeholder="operator id" value="operator" class="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
+        <input name="reason" placeholder="reason (audited)" class="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
+        <div class="flex gap-2">
+          <button name="decision" value="VALIDATED" class="flex-1 rounded-md bg-emerald-600/80 hover:bg-emerald-500 px-3 py-1.5 font-semibold text-slate-950">Validate</button>
+          <button name="decision" value="REJECTED" class="flex-1 rounded-md bg-rose-600/80 hover:bg-rose-500 px-3 py-1.5 font-semibold text-slate-950">Reject</button>
+        </div>
+      </form>
+    </div>
+    {% else %}
+    <div class="py-10 text-center text-slate-500"><div class="text-3xl mb-2">✓</div>Nothing to review.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="glass rounded-2xl p-5">
+  <h2 class="font-semibold">Audit trail (last 50)</h2>
+  <div class="overflow-x-auto mt-3">
+    <table class="w-full text-xs compact">
+      <thead class="text-left text-[11px] uppercase tracking-wider text-slate-400"><tr><th>When (UTC)</th><th>Entity</th><th>Field</th><th>Old</th><th>New</th><th>Operator</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for a in audits %}
+        <tr class="border-t border-slate-800/70">
+          <td class="whitespace-nowrap text-slate-400">{{ a.event_at }}</td><td>{{ a.entity }} <span class="text-slate-500">{{ a.entity_id }}</span></td><td>{{ a.field }}</td>
+          <td class="text-slate-400 truncate max-w-[12rem]" title="{{ a.old_value }}">{{ a.old_value or '—' }}</td><td class="truncate max-w-[12rem]" title="{{ a.new_value }}">{{ a.new_value or '—' }}</td>
+          <td>{{ a.operator_id }}</td><td class="text-slate-400">{{ a.reason or '—' }}</td>
+        </tr>
+        {% else %}<tr><td colspan="7" class="py-6 text-center text-slate-500">No audit events.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

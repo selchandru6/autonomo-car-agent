@@ -1,0 +1,42 @@
+name: carshop
+
+x-common: &common
+  build: .
+  image: carshop:local
+  env_file:
+    - path: .env
+      required: false
+  environment:
+    CARSHOP_DATA_DIR: /data
+    CARSHOP_SCHEDULE_TZ: America/Chicago
+  volumes:
+    - carshop-data:/data
+  # Chromium needs a larger shared memory segment than Docker's 64 MB default.
+  shm_size: "1gb"
+  security_opt:
+    - no-new-privileges:true
+  read_only: false
+  restart: unless-stopped
+
+services:
+  web:
+    <<: *common
+    command: ["serve"]
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  scheduler:
+    <<: *common
+    command: ["cron"]
+    depends_on:
+      - web
+
+  # One-off: `docker compose run --rm runner --dealer bmw-austin`
+  runner:
+    <<: *common
+    command: ["run"]
+    profiles: ["manual"]
+    restart: "no"
+
+volumes:
+  carshop-data:

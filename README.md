@@ -1,92 +1,143 @@
-# autonomo-car-agent
+# AI car shopping — 2026 BMW X5 xDrive40i, Texas
 
-An auditable daily monitor for new **2026 BMW X5 xDrive40i** listings at approved Texas BMW franchise dealers.
+A daily, deterministic inventory monitor for one owner. It reads every Texas BMW franchise
+dealer on the BMW USA dealer locator once a day, classifies every listing against hard rules, stores every observation with
+its evidence in SQLite, computes same-VIN deltas against each dealer's last good read, sends a
+digest, and shows everything on a local web screen.
 
-Each day it collects listings from the dealers on an approved registry. It keeps an append-only history of every listing and shows price and availability on one screen, plus a dated email digest. A buyer can see:
+It is a measurement instrument, not a forecaster. The requirements in
+[`doc/requirements.md`](doc/requirements.md) are the contract; the code follows them section by
+section. Invariants that matter most:
 
-- where advertised cash prices sit;
-- which dealer's lowest price moved;
-- how stock changed;
-- which VINs appeared or dropped off;
-- which cars best match saved preferences, such as grey exterior, a non-black interior, and the Driving Assistance Professional package.
+- Unknown is never No. A missing price is `NULL`, never `0`, and MSRP is never substituted.
+- A dealer that was not read is a gap (`PARTIAL` / `NOT_REPORTED`), never zero inventory.
+- A VIN that disappears is `MISSING_UNVERIFIED`, never a sale.
+- Every `YES`/`NO` on a feature carries an exact quote, URL, fetch time and page hash.
+- GET/HEAD only, robots re-read every run, no CAPTCHA solving, no proxies, no TLS tricks.
+- The dealer list is the locator's, not ours: every Texas dealer is on the registry and
+  attempted every run; coverage is reported against all of them (requirements v1.3).
 
-It does **not** contact dealers, submit leads, forecast prices, or claim that a delisted car was sold. It never claims to have found every car in Texas. It reports every approved dealer, including the ones it could not read.
-
-> **Status: early scaffold.** The package layout and tooling are in place, but the pipeline is not implemented yet. The commands in [Usage](#usage) are planned, not working. The full specification is [doc/requirements.md](doc/requirements.md).
-
-## How it works
+## Layout
 
 ```
-registry ─► fetcher ─► extractor ─► validator ─► storage ─► comparator ─► notifier
- (approved   (robots,    (VIN, price,   (scope rules,  (SQLite,     (deltas vs the    (digest +
-  dealers)    allowlist)  options)       flags)         per dealer)  last good run)    alerts)
+src/carshop/
+  config/      settings (env, CARSHOP_*), dealer registry + preferences (YAML)
+  domain/      pure rules: codes, VIN, pricing, features (DAP), classify, lifecycle
+  reference/   versioned AG codes, colour and upholstery tables
+  safety/      URL allowlist, SSRF guard, robots evaluation
+  fetch/       httpx client, Playwright renderer, claim-check artifacts, host politeness
+  adapters/    Dealer Inspire, Dealer.com, DealerOn, DealerFire parsers, generic JSON-LD + detection
+  extract/     optional LLM package resolver (off without a key)
+  pipeline/    run supervisor, per-dealer branch, comparator, digest
+  storage/     SQLAlchemy Core schema, Alembic migrations, repos, backup, retention
+  export/      CSV / XLSX
+  web/         FastAPI + Jinja screen (Tailwind, Alpine, ECharts via CDN)
+  cli.py       `carshop` command
+tests/         unit, golden fixtures (offline HTML), §13 gate tests
+deploy/        Dockerfile entrypoint, crontab, heartbeat
+doc/           requirements, ADRs, runbooks
 ```
 
-- **One run per Chicago calendar date at 06:00**, with the digest by 07:30. Timestamps are stored in UTC.
-- **Every dealer ends each run in a final status:**
-  - `REPORTED`: read successfully. This includes a page that genuinely lists zero matching cars.
-  - `PARTIAL`: some pages were read and some failed.
-  - `NOT_REPORTED`: the read failed. No vehicle rows are written, so a failure never shows up as zero stock.
-  - `NO_SOURCE`: the dealer has no approved public inventory page.
-- **Changes are measured against that dealer's last fully read run.** A car that disappears is marked `MISSING_UNVERIFIED`, never sold.
-- **Prices are stored in whole cents, and NULL means unknown.** Dealers are compared on the unconditional advertised cash price only, never on MSRP, a monthly payment, or a conditional rebate.
-- **Features need evidence.** Driving Assistance Professional counts as present only with option `ZDY` or `5AU`, or the exact package name. The standard `5AS` Driving Assistant does not count. M Sport (`ZMP`) cars stay in scope and are flagged.
-- **Fetching is polite and blocks are respected.** Requests are GET and HEAD only, robots.txt is checked on every run, and redirects must stay on the dealer's allowlist. There is no CAPTCHA solving, no proxies, and no evasion of bot blocking: a block is recorded as `NOT_REPORTED`.
+## Quick start (local)
 
-## Tech stack
+Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
-Python 3.12 (managed with [uv](https://docs.astral.sh/uv/)) · SQLite in WAL mode · httpx and Playwright for fetching · selectolax for parsing · SQLAlchemy and Alembic · Typer CLI · FastAPI for the screen · optional LangGraph. Development tools: pytest, ruff, mypy and pre-commit.
-
-## Setup
-
-```bash
-git clone https://github.com/selchandru6/autonomo-car-agent.git
-cd autonomo-car-agent
-uv sync                      # creates .venv with Python 3.12 and all dependencies
-cp .env.example .env         # then edit; see below
+```sh
+uv sync --all-extras
+uv run playwright install chromium        # browser fallback for Cloudflare-fronted dealers
+cp .env.example .env                      # optional; everything has a default
+uv run carshop migrate-db
+uv run carshop registry refresh           # locator snapshot + inventory-URL discovery, ~4 min
+uv run carshop run --notify               # every Texas dealer, ~15-30 min with the browser
+uv run carshop serve                      # http://127.0.0.1:8000
 ```
 
-`.env` holds the only two secrets the system uses. Both are optional:
+Useful commands:
 
-| Variable | If left empty |
+```sh
+uv run carshop run --dealer bmw-austin           # one dealer
+uv run carshop run --trigger catchup --date 2026-10-18
+uv run carshop status                            # latest run as JSON
+uv run carshop coverage                          # per-dealer last status vs. the registry
+uv run carshop registry show                     # the generated registry
+uv run carshop registry refresh --only-missing   # re-discover only dealers without a URL
+uv run carshop export --kind xlsx                # or csv
+uv run carshop backup && uv run carshop prune
+uv run carshop digest <run_id>                   # print the digest text
+```
+
+Without `CARSHOP_MODEL_API_KEY` the run records `model_status=down` and ambiguous package
+text stays `UNKNOWN`. Nothing else changes. Set the key later and the single LLM step turns on
+with a $0.15 per-run breaker.
+
+## The screen
+
+| Page | What it shows |
 | --- | --- |
-| `CARSHOP_MODEL_API_KEY` | Runs fully deterministic; ambiguous package text is stored as `UNKNOWN`. |
-| `CARSHOP_SMTP_URL` | The digest is written to `data/digests/` instead of being emailed. |
+| Overview | KPIs, price band scatter per dealer, floors, stock and floor trends, top preference fits, dealer health |
+| Inventory | Every eligible VIN in the published run with facet filters (dealer, colour, DAP, M Sport, transit, price shown) and sort |
+| VIN | One car: prices by kind, feature evidence with quotes, same-VIN price history, lifecycle, every observation |
+| Shortlist | Preference fit and evidence confidence as separate scores; side-by-side compare up to 4 |
+| Trends | Floor and stock per dealer over time with gaps where a dealer was not read; annotations for floor-VIN turnover |
+| Health | Registry coverage, 30-day status grid, exclusions by code, every fetch attempt |
+| Review | PENDING_REVIEW items with validate/reject, full audit trail |
+| Runs | Run history, notification log, digest text |
 
-Runtime data lives in `./data` and is git-ignored: the SQLite database, gzipped page snapshots, backups, and digests.
+The screen reads committed rows only and serves the latest `PUBLISHED` run by default; any
+earlier run is selectable. Front-end libraries load from public CDNs; for an air-gapped host
+vendor them into `src/carshop/web/static/`.
 
-## Usage
+## Registry (requirements 7.1, F1, F25)
 
-*Planned, not yet implemented.* The CLI entry point is `carshop` (see `pyproject.toml`).
+`carshop registry refresh` builds `data/registry/dealers.generated.yaml`:
 
-```bash
-uv run carshop --help
-```
+1. **Locator snapshot** — the BMW USA dealer locator's own results request for Texas (GET,
+   robots checked, issued from the locator page in Chromium because the BMW edge rejects
+   non-browser TLS). Dealers are de-duplicated by center number. The raw bodies are kept.
+2. **Discovery** — for each dealer host: homepage → platform → robots → the cleanest verified
+   new-X5 inventory URL (homepage link, platform convention, sitemap, unfiltered new page).
+   One cross-host redirect is followed as a rename and recorded.
+3. **Compose** — stable ids, `active: false` for dealers that left the locator, and operator
+   overrides from `src/carshop/config/registry/overrides.yaml` (privileged: `operator` and
+   `set_at` are required and audited).
+
+A run refreshes automatically when the snapshot is older than 30 days. A dealer with no
+discoverable inventory URL is `NO_SOURCE` with a reason (`no_hostname`,
+`homepage_unreachable`, …), shown on the Health page and counted in the coverage denominator.
+See [ADR 0003](doc/adr/0003-registry-from-locator.md).
+
+## Dealer access
+
+Most dealer sites sit behind Cloudflare or Akamai and return 403 to plain HTTP clients. The
+pipeline tries HTTP first and then renders once with a real Chromium through Playwright,
+identified as that Chrome build **plus the product token `carshop/0.1`**, with the project URL
+in an `X-Carshop` header and `From:` when `CARSHOP_CONTACT_EMAIL` is set (see
+[ADR 0002](doc/adr/0002-browser-identity.md)). No CAPTCHA is ever solved; a challenge page
+is recorded as `CAPTCHA` and the dealer is `NOT_REPORTED` for the day.
+
+Politeness (v1.3 baselines): one request in flight per host, a 5–10 s pause between requests
+to one host, four dealers in parallel, a 10-minute branch timeout per dealer (timeout keeps
+the pages already read → `PARTIAL` / `TIMEOUT`), 60-minute wall-clock target per run.
 
 ## Development
 
-```bash
-uv run pytest                # tests; network access is blocked by default
-uv run pytest -m gate        # section 13 must-pass release gates
-uv run ruff check . && uv run mypy
+```sh
+uv run ruff check src tests && uv run ruff format src tests
+uv run mypy
+uv run pytest                      # network is blocked by pytest-socket
+uv run pytest -m gate              # §13 release gates only
+uv run pre-commit install
 ```
 
-Tests must never hit live dealer sites. Tests marked `live` are a separate, rate-limited smoke check, never the accuracy gate.
+Golden fixtures live in `tests/golden/pages`; expected classifications in
+`tests/golden/expected`. Change a parser, re-run, and inspect the diff before updating the
+expected JSON.
 
-## Before the first live run
+## Deployment
 
-As [section 16](doc/requirements.md#16-still-needed-from-the-owner) of the requirements says, no dealer site is fetched until the owner provides:
+`Dockerfile` builds a non-root image with Chromium. `compose.yaml` runs the web screen and a
+scheduler that fires the 06:00 America/Chicago run and the 07:30 heartbeat. For a plain VM use
+`deploy/crontab`. Runbooks are in `doc/runbooks/`.
 
-1. The Phase 1 dealer rows: legal name, BMW center number, city, hostname, inventory URL, path prefix, website platform, and a terms decision.
-2. The digest recipient addresses.
-3. Confirmation of the option and powertrain codes (`23EU`, `ZDY`, `5AU`, `5AS`, `ZMP`) on one official 2026 X5 window sticker.
-
-## Project layout
-
-```
-doc/requirements.md   the requirements baseline (v1.2)
-src/carshop/          adapters, config, domain, export, extract, fetch, observability,
-                      pipeline, reference, review, safety, storage, web
-pyproject.toml        dependencies and ruff/mypy/pytest configuration
-.env.example          environment template
-```
+Secrets: only `CARSHOP_MODEL_API_KEY` and `CARSHOP_SMTP_URL`, via environment. Nothing in
+the repo or the database.

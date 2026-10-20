@@ -1,20 +1,22 @@
 # AI car shopping — requirements
 
 **Product:** AI car shopping  
-**Subject:** New 2026 BMW X5 xDrive40i listings at approved Texas BMW dealers  
+**Subject:** New 2026 BMW X5 xDrive40i listings at every Texas BMW dealer  
 **Status:** Implementation baseline  
 **Date:** 2026-10-19  
-**Supersedes:** the original agentic MAS design and revision 1.1 of the same date
+**Supersedes:** the original agentic MAS design, revision 1.1, and revision 1.2 of the same date
 
 This file is the single requirements baseline. It merges both design documents and applies the architecture review. Where those sources disagreed, this file states the rule to build.
 
 Words **MUST**, **MUST NOT**, and **SHOULD** are normative. A value marked **baseline** is the rule to implement. The owner can change a baseline value in configuration without a schema change. Section 16 lists the few inputs this file cannot invent.
 
-The system MUST NOT claim it has found every Texas vehicle. It accounts for every dealer on the approved registry, and it shows which dealers were not read.
+The goal is every in-scope car at every Texas BMW franchise dealer, stored in the database. No Texas BMW dealer is excluded by an approval step. The registry is every Texas dealer on the BMW USA dealer locator, and each one is attempted on every run.
+
+Coverage is still reported honestly. A dealer whose site could not be read is shown as not read, not as having zero cars. The system claims statewide completeness for a run only when every Texas dealer on the registry is `REPORTED`.
 
 ## 1. Purpose
 
-The system finds new model-year 2026 BMW X5 xDrive40i vehicles advertised by approved Texas BMW franchise dealers, keeps an auditable history of each listing, and shows price and availability on one screen plus a dated email digest.
+The system finds new model-year 2026 BMW X5 xDrive40i vehicles advertised by every Texas BMW franchise dealer, keeps an auditable history of each listing, and shows price and availability on one screen plus a dated email digest.
 
 A buyer can see where advertised prices sit, which dealer’s floor moved, how stock changed, which VINs appeared or left the listing, and which in-scope cars best match saved preferences. Preference fit and evidence confidence are separate.
 
@@ -24,11 +26,11 @@ Out of scope for the product: contacting a dealer, submitting a lead, reserving,
 
 | Role | Responsibility |
 | --- | --- |
-| Owner | Approves scope, the dealer registry, terms decisions, and phase gates. |
+| Owner | Approves scope and phase gates. The owner has given blanket approval for every Texas BMW franchise dealer (section 7.1), so there is no per-dealer approval step. |
 | Operator | Runs the schedule, labels the golden set, and clears the review queue. |
 | Buyer | Reads the digest and the screen. |
 
-Phase 1 is a single operator and a read-only screen. Shared access, if added later, requires authentication. Dealer hostnames, path prefixes, sticker hosts, and terms flags are privileged edits stored with operator id and time.
+Phase 1 is a single operator and a read-only screen. Shared access, if added later, requires authentication. Values in the registry come from the locator and from discovery (section 7.1). A manual override of a dealer hostname, path prefix, or sticker host is a privileged edit, stored with operator id and time.
 
 ## 3. Scope
 
@@ -36,10 +38,10 @@ Phase 1 is a single operator and a read-only screen. Shared access, if added lat
 
 - New model-year 2026 BMW X5 xDrive40i, including cars that carry the M Sport package (option **ZMP**).
 - In-transit new units of that car, flagged `IN_TRANSIT`.
-- Approved Texas BMW franchise dealers and their vehicle detail pages.
+- Every Texas BMW franchise dealer on the BMW USA dealer locator, and their vehicle detail pages.
 - Official window stickers linked from those pages when the sticker host is on that dealer’s allowlist.
 - A dealer registry, daily collection, append-only history, exception review, a trends screen, a buyer shortlist, CSV and XLSX export, and a dated digest.
-- Third-party pages only as manual leads. A fact used in storage MUST be corroborated on an approved dealer page or an allowlisted sticker.
+- Third-party pages only as manual leads. A fact used in storage MUST be corroborated on a registry dealer’s own page or an allowlisted sticker.
 
 ### Out of scope
 
@@ -67,7 +69,8 @@ These were open or contradictory in the source designs. This baseline closes the
 | Topic | Rule |
 | --- | --- |
 | M Sport | In scope. Store `PKG_M_SPORT` when ZMP or the phrase “M Sport Package” is evidenced. The screen can filter it. Ingestion does not drop it. |
-| Coverage claim | Report the approved registry as the denominator. A dealer with no public inventory page is `NO_SOURCE`, not an invisible success. |
+| Dealer scope | Every Texas BMW franchise dealer on the BMW USA locator. The owner gave blanket approval on 2026-10-19, so no dealer waits on a per-dealer terms decision. Robots and the no-evasion rules still apply to every site. |
+| Coverage claim | The denominator is every active Texas dealer on the registry. A dealer with no discoverable public inventory page is `NO_SOURCE`, not an invisible success. |
 | Failed read versus true zero | `NOT_REPORTED` writes no unit rows. A rendered explicit empty inventory is `REPORTED` with `unit_count` 0. |
 | Silent zero | A dealer that had units and now shows a rendered zero with no HTTP error is `REPORTED`, count 0, plus `SCRAPE_ANOMALY_SUSPECTED`. |
 | Comparison price | Unconditional advertised cash price, integer cents, else NULL. Never substitute MSRP. |
@@ -83,7 +86,7 @@ These were open or contradictory in the source designs. This baseline closes the
 
 ## 5. Success criteria
 
-1. Every approved dealer on a scheduled run ends `REPORTED`, `PARTIAL`, `NOT_REPORTED`, or `NO_SOURCE`, with a machine-readable reason when the result is not a clean report.
+1. Every active Texas registry dealer on a scheduled run ends `REPORTED`, `PARTIAL`, `NOT_REPORTED`, or `NO_SOURCE`, with a machine-readable reason when the result is not a clean report.
 2. An eligible VIN is stored once per dealer per run. The same VIN at two dealers is two observations.
 3. A failed or partial read MUST NOT create a removal, a sale, or a zero-unit inventory point.
 4. Every price and every YES/NO feature used on the screen or in the digest has source evidence.
@@ -94,8 +97,8 @@ These were open or contradictory in the source designs. This baseline closes the
 
 | ID | Requirement | Acceptance check |
 | --- | --- | --- |
-| F1 | Maintain an approved dealer registry. Refresh it monthly from a BMW USA dealer-locator snapshot for Texas. | Each active dealer has a stable id, BMW center number, official hostname, inventory start URL, path prefix, platform, terms status, and last-verified date. Locator dealers missing from the registry appear in the coverage report. |
-| F2 | Fetch approved inventory and detail pages, and allowlisted stickers. Follow only that dealer’s path prefix plus named sticker hosts. | Each expected page is fetched or given an incomplete reason. Pagination, load-more, and JSON strategies stop on their own condition or at 30 pages. Blocked access is not bypassed. |
+| F1 | Build the dealer registry automatically from a BMW USA dealer-locator snapshot for Texas, and refresh it monthly. Every Texas dealer on the locator is added, with no approval step. | Each active dealer has a stable id, BMW center number, official hostname from the locator, inventory start URL, path prefix, platform, robots status, and last-verified date. A dealer that appears on the locator is added on the next refresh. A dealer that leaves the locator is marked inactive, and its history is kept. |
+| F2 | Fetch inventory and detail pages for every registry dealer, and allowlisted stickers. Follow only that dealer’s path prefix plus named sticker hosts. | Each expected page is fetched or given an incomplete reason. Pagination, load-more, and JSON strategies stop on their own condition or at 30 pages. Blocked access is not bypassed. |
 | F3 | Extract VIN, stock, model, trim, year, condition, availability, exterior color, interior upholstery, odometer, packages, price components, source URL, and fetch time. | A missing field is NULL or `UNKNOWN`. Page-absent values are not inferred. VIN year and powertrain checks in F4 are allowed and store their method. |
 | F4 | Classify each listing with the rules in section 7. Keep M Sport xDrive40i units eligible. | Every exclusion has a reason code and an evidence quote in `exclusions`. In-scope ZMP units stay in observations with `PKG_M_SPORT`. |
 | F5 | Classify Driving Assistance Professional as `YES`, `NO`, or `UNKNOWN` using the sticker rules in section 7. | `YES` and `NO` cite vehicle-specific evidence. A highlights list that merely omits the package yields `UNKNOWN`. Standard 5AS is not DAP. |
@@ -104,7 +107,7 @@ These were open or contradictory in the source designs. This baseline closes the
 | F8 | Show the views in section 11 from committed rows only. | A `NOT_REPORTED` or `PARTIAL` day is a gap in that dealer’s stock and floor series, not a zero. |
 | F9 | Send one dated digest per published run to the named recipient list, plus an operator alert on read failures. | The body hash matches the stored run. Delivery is idempotent on `(run_id, recipient)`. A failed send retries without a new crawl. |
 | F10 | Re-run one dealer or one snapshot date on demand. | The new run has its own `run_id`, `trigger`, and `rerun_of_run_id`. Prior rows stay. A re-run does not email unless the operator passes notify. A dealer already in a `RUNNING` run is rejected. |
-| F11 | Publish a coverage report for the registry. | The report lists every approved dealer with last success, reason, verification date, and the ratio of `REPORTED` dealers to active approved dealers. `PARTIAL` is not counted as reported. |
+| F11 | Publish a coverage report for the registry. | The report lists every Texas dealer with last success, reason, verification date, and the ratio of `REPORTED` dealers to active registry dealers. `PARTIAL` is not counted as reported. |
 | F12 | Enrich a unit from its detail page and, when linked and allowlisted, its window sticker. | Conflicts are stored on both sides. The sticker does not silently overwrite the listing. |
 | F13 | Deduplicate URLs that share a VIN at the same dealer in the same run. | One observation per `(run_id, dealer_id, vin)`. Alternate URLs are kept. Cross-dealer appearances stay distinct and raise `TRANSFER_SUSPECTED`. |
 | F14 | Track listing lifecycle without inferring a sale. | States are `ACTIVE`, `MISSING_UNVERIFIED`, `DELISTED`, `SOLD_CONFIRMED`, `TRANSFERRED`, `RELISTED`, and `UNKNOWN`. `SOLD_CONFIRMED` and `TRANSFERRED` require explicit evidence. |
@@ -117,19 +120,20 @@ These were open or contradictory in the source designs. This baseline closes the
 | F21 | Make notifications idempotent. | The same business event and channel share one deduplication key. A retry does not send a second copy. |
 | F22 | Store human corrections as new versions. | The original extraction remains. The correction records operator id, time, old value, new value, reason, and evidence. Charts read the latest non-rejected version. |
 | F23 | Export the latest eligible inventory and a selected history to CSV and XLSX. | The export uses the same scope, price labels, timestamps, and coverage warnings as the screen and the digest. |
-| F24 | Enforce source approval, robots, and network safety on every fetch. | A disallowed source or redirect fails closed with a reason. No CAPTCHA, proxy, or TLS-impersonation path exists. |
+| F24 | Enforce the registry host allowlist, robots, and network safety on every fetch. | A host that is not a registry dealer or allowlisted sticker host, a robots disallow, or an unsafe redirect fails closed with a reason. No CAPTCHA, proxy, or TLS-impersonation path exists. |
+| F25 | Discover each dealer’s inventory start URL and platform automatically. | From the locator hostname, the fetcher reads the dealer’s public homepage and sitemap (GET only, same host) to find the new-inventory page filtered to X5 where the site allows it, and detects the platform. An operator override takes precedence. A dealer with no discoverable inventory page is `NO_SOURCE` with a reason, and it stays in the denominator. |
 
 ## 7. Business rules
 
 ### 7.1 Registry
 
-The system of record for “which dealers exist” is a monthly snapshot of the BMW USA dealer locator for Texas. The approved registry is the subset the owner has marked allowed, disallowed, or accepted-risk. The blog and other third-party dealer lists are leads only.
+The system of record for “which dealers exist” is a monthly snapshot of the BMW USA dealer locator for Texas. The registry is every Texas dealer in that snapshot. There is no approval subset: every registry dealer is in scope and attempted every run. The blog and other third-party dealer lists are leads only. They do not add dealers, because a Texas BMW franchise dealer is on the locator by definition.
 
-A dealer row MUST include center number, name, city, hostname, start URL, path prefix, website platform, terms status, robots status, and sticker-host allowlist. Group sites such as Sewell and Park Place MAY share a registrable domain. Domain uniqueness MUST NOT be the dealer key. The path prefix MUST keep the fetcher off sister brands and used-car paths.
+A dealer row MUST include center number, name, city, hostname, start URL, path prefix, website platform, terms status, robots status, and sticker-host allowlist. The hostname comes from the locator. The start URL, path prefix, and platform come from discovery (F25) unless an operator override is set. Group sites such as Sewell and Park Place MAY share a registrable domain. Domain uniqueness MUST NOT be the dealer key. The path prefix MUST keep the fetcher off sister brands and used-car paths. For a group site, the start URL MUST be filtered to that store, so one store’s cars are not stored under another store.
 
-Platform is one of `dealer_com`, `dealer_inspire`, `dealeron`, `cdk`, `other`, or `unknown`. DealerOn and CDK are different values. Confirm the platform on each Phase 1 site before coding an adapter. A new dealer on a known platform is configuration. A new platform is a code change plus golden-set pages.
+Platform is one of `dealer_com`, `dealer_inspire`, `dealeron`, `cdk`, `other`, or `unknown`. DealerOn and CDK are different values. A new dealer on a known platform is configuration. A dealer on an `other` or `unknown` platform is still attempted with the generic order in section 7.4 (JSON-LD, then the page’s own inventory JSON, then one browser render). If that fails, it is `NOT_REPORTED` / `LAYOUT_UNKNOWN`, and it is a candidate for a new adapter. A new platform adapter is a code change plus golden-set pages.
 
-Before the first fetch of a dealer, terms status MUST be `allowed` or `owner_accepted_risk`. `disallowed` is never fetched.
+Terms status is `owner_accepted_risk` for every registry dealer, under the owner’s blanket decision of 2026-10-19. It is recorded for audit and does not gate fetching. A dealer is skipped only for the reasons in section 7.9.
 
 ### 7.2 Identity
 
@@ -162,8 +166,8 @@ Any other AG code is out of scope with the matching reason. A decoder MAY corrob
 | --- | --- | --- |
 | `REPORTED` | Required pages were read and parsed, including a rendered page that explicitly has no matching vehicles. | Observations for in-scope units. Count may be 0. |
 | `PARTIAL` | At least one required page was unread or at least one listing failed parsing, and at least one page succeeded. | Parsed in-scope units are kept. Excluded from removal deltas. |
-| `NOT_REPORTED` | Timeout, block, captcha, unrendered shell after the browser attempt, unknown layout, robots disallow, or unapproved source. | No observation rows. Reason code required. Stock and floor series leave a gap. |
-| `NO_SOURCE` | Locator dealer with no approved public inventory URL. | No fetch. Visible in coverage. |
+| `NOT_REPORTED` | Timeout, block, captcha, unrendered shell after the browser attempt, unknown layout, robots disallow, or a host outside the registry allowlist. | No observation rows. Reason code required. Stock and floor series leave a gap. |
+| `NO_SOURCE` | Locator dealer with no discoverable public inventory URL (F25). | No inventory fetch. Visible in coverage, and counted in the denominator. |
 
 A drop from a positive eligible count to a rendered zero, with no HTTP error, MUST raise `SCRAPE_ANOMALY_SUSPECTED` and still be a legal zero.
 
@@ -181,7 +185,7 @@ For each dealer, try sources in this order:
 2. The inventory JSON request that the public page itself makes, recorded in that dealer’s adapter after it is confirmed.
 3. One browser render of the public page.
 
-An HTTP shell MUST escalate to the browser once before `UNRENDERED_SHELL`. A rendered explicit empty result is `REPORTED` with count 0. Undocumented private widget paths are adapter configuration, not a core contract, and they still obey robots and the terms flag.
+An HTTP shell MUST escalate to the browser once before `UNRENDERED_SHELL`. A rendered explicit empty result is `REPORTED` with count 0. Undocumented private widget paths are adapter configuration, not a core contract, and they still obey robots.
 
 Re-fetch `robots.txt` every run and store its hash. If `Disallow` covers the inventory path, status is `NOT_REPORTED` / `ROBOTS_DISALLOWED` and nothing else is fetched.
 
@@ -191,7 +195,7 @@ Retries apply only to HTTP 429, HTTP 503, and timeouts, at most twice, honoring 
 
 After every redirect, the final URL MUST match the dealer allowlist in punycode, use `https`, contain no userinfo, and MUST NOT resolve to a loopback, link-local, or private address.
 
-Phase 1 concurrency is 2 dealers, with at most one request in flight per host. Phase 2 concurrency is one request per host, a 5–10 second pause between requests to that host, and a global cap. Per-dealer branch timeout is 120 seconds in Phase 1.
+Concurrency is at most one request in flight per host, a 5–10 second pause between requests to the same host (baseline), and a global cap of **4** dealers in parallel (baseline). Dealers on a shared group domain share that host’s limit. Per-dealer branch timeout is **10 minutes** (baseline). A timeout keeps the pages already read and makes the dealer `PARTIAL` / `TIMEOUT`.
 
 ### 7.5 Page artifacts
 
@@ -261,7 +265,7 @@ The model is called only for ambiguous package text that deterministic rules did
 
 If model spend on a run reaches **$0.15** (baseline, inside the $5 monthly model budget), stop new model calls, finish deterministically, mark remaining ambiguous fields `UNKNOWN`, alert, and still publish. If the model is unavailable, do the same and set `model_status` to `down`. Do not fail the dealer for a model outage.
 
-Every approved, terms-allowed dealer is attempted every scheduled run. Order MAY put unhealthy dealers first. Skipping is allowed only for `ROBOTS_DISALLOWED`, `SOURCE_NOT_APPROVED`, or `BUDGET`.
+Every active registry dealer is attempted every scheduled run. Order MAY put unhealthy dealers first. Skipping is allowed only for `ROBOTS_DISALLOWED`, `NO_SOURCE`, or `BUDGET`. `SOURCE_NOT_APPROVED` applies only to a URL whose host is neither a registry dealer nor an allowlisted sticker host. It never skips a registry dealer.
 
 ### 7.10 Schedule and delivery
 
@@ -276,10 +280,10 @@ Every approved, terms-allowed dealer is attempted every scheduled run. Order MAY
 
 | Area | Requirement |
 | --- | --- |
-| Reliability | Every dealer ends in a terminal status and a partial run is still published. Phase 1 target: at least 5 of 6 dealers `REPORTED`. That target is not permission to hide the sixth. |
+| Reliability | Every dealer ends in a terminal status and a partial run is still published. Target: at least **90%** of active Texas registry dealers `REPORTED` (baseline). That target is not permission to hide the rest. |
 | Accuracy | No observation rows from a failed read. No unsupported `SOLD_CONFIRMED`. No unsupported DAP `YES`. Release gates in section 13 are must-pass. |
-| Freshness | Phase 1 wall clock 15 minutes for six dealers. Phase 2 wall clock 60 minutes. The 15-minute target does not apply at 50 dealers. The screen shows data age per dealer. |
-| Compliance | Owner-approved sources only. Honor robots and recorded terms. Do not bypass blocks, sign-in, or rate limits. |
+| Freshness | Wall clock **60 minutes** for every Texas dealer (baseline). The digest deadline in section 7.10 still holds. The screen shows data age per dealer. |
+| Compliance | Registry dealer sites and allowlisted sticker hosts only. Honor robots. Identify the fetcher honestly in the HTTP and browser user agents. Do not bypass blocks, sign-in, or rate limits. |
 | Network | Allowlist after redirects. Reject private and link-local targets. Sticker hosts are explicit. |
 | Security | Secrets outside the repo. Traces and snapshots are redacted as in section 7.5. Operator id is stored instead of a scraped personal profile. |
 | Audit | Every comparison price and every YES/NO feature links to a URL, a fetch time, a page hash, and a quote. Observations store git SHA and adapter version. |
@@ -298,7 +302,7 @@ Logical responsibilities stay. They are not eight language-model agents.
 | Step | Implementation | Output |
 | --- | --- | --- |
 | Supervisor | Deterministic scheduler. Model use is limited to ordering among dealers that will all be attempted. | `run_id`, frozen config version, dealer task list. |
-| Registry | Deterministic validation. A human approves a new hostname. | Registry rows and coverage gaps. |
+| Registry | Deterministic locator import and inventory-URL discovery (F25). No human approval step. | Registry rows and coverage gaps. |
 | Fetcher | HTTP, then JSON, then one browser render. Platform detection is a function, not an agent. | `fetch_attempts` and artifact pointers. |
 | Extractor | Deterministic parse first. Model only for leftover ambiguous package text. | Structured fields plus evidence quotes. |
 | Validator | Rules engine. | Eligibility, feature status, staging status. |
@@ -384,7 +388,7 @@ The owner MAY later turn grey exterior, non-black interior, or DAP into hard fil
 
 The operator labels fixtures. The owner spot-checks them. Refresh a dealer’s fixtures when its adapter changes, and review the set at least monthly.
 
-Starter set: at least 30 pages across the Phase 1 dealers, stratified so that each of these exists at least once:
+Starter set: at least 30 pages, with at least one dealer from each platform in the registry, stratified so that each of these exists at least once:
 
 - Mixed X3 and X5 inventory, including the Arlington combined inventory page
 - Page 2 or a later page of a listing
@@ -426,9 +430,9 @@ Additional drills: layout change, rate limit 429, redirect off the allowlist, pr
 
 | Phase | Deliver | Exit |
 | --- | --- | --- |
-| 0. Registry | Owner supplies the six Phase 1 dealers, terms decisions, digest recipients, and any hard preference changes. | No production fetch until each Phase 1 dealer has a terms flag and a start URL. |
-| 1. Monitor | Those six dealers, daily run, claim-check snapshots, status model, price rules, staging, idempotent digest, external heartbeat, starter golden set, CSV export. | Two weeks of runs reconcile to the operator’s manual checks. A failed dealer never appears as zero. Must-pass gates hold on the starter set. |
-| 2. Texas | Locator snapshot, every Texas BMW franchise dealer accounted for, detail and sticker enrichment, coverage report. | Every active approved dealer is `REPORTED`, `PARTIAL`, `NOT_REPORTED`, or `NO_SOURCE`. Gaps are named. Wall clock within 60 minutes. |
+| 0. Registry | Texas locator snapshot imported, plus start-URL and platform discovery (F25) for every dealer. | Every Texas locator dealer has a registry row with either a start URL or a `NO_SOURCE` reason. No per-dealer owner input is required. |
+| 1. Monitor (statewide) | Every Texas registry dealer, daily run, claim-check snapshots, status model, price rules, staging, idempotent digest, external heartbeat, starter golden set, CSV export, coverage report. | Two weeks of runs reconcile to the operator’s manual checks on a sample of dealers from each platform. A failed dealer never appears as zero. Must-pass gates hold on the starter set. Wall clock within 60 minutes. |
+| 2. Coverage and enrichment | Adapters for platforms that ended `LAYOUT_UNKNOWN`, plus detail and sticker enrichment. | At least 90% of active Texas registry dealers `REPORTED`. Every remaining gap is named with a reason. |
 | 3. Screen | The six views, filters, exports, source links, empty states. | Owner checks example comparisons, price bases, gaps, and the shortlist against one published run. |
 | 4. Hardening | Restore drill, retention enforcement, budget alerts, fixture expansion, optional LangGraph if the pipeline is still plain code. | Failure drills pass, a restore reads, and a run that trips the model breaker still publishes. |
 
@@ -454,17 +458,17 @@ Deployment shape: one container, a scheduler, a mounted SQLite volume, a separat
 
 ## 16. Still needed from the owner
 
-This file does not invent these. Collection MUST NOT start until the first three exist.
+This file does not invent these. Collection does not wait on any of them: the dealer list comes from the locator, and the owner gave blanket approval for every Texas dealer on 2026-10-19.
 
-1. Phase 1 dealer rows: legal name, BMW center number, city, hostname, inventory start URL, path prefix, platform, and terms decision. The source designs name Sewell Plano, Sewell Grapevine, BMW of Arlington, and Park Place as references, not as a finished set of six.
-2. Digest recipient addresses.
-3. Confirmation, on one official 2026 X5 window sticker, of the AG codes, ZDY, 5AU, 5AS, and ZMP before those codes are treated as frozen.
+1. Digest recipient addresses. Until they exist, the digest is written to a file and not emailed.
+2. Confirmation, on one official 2026 X5 window sticker, of the AG codes, ZDY, 5AU, 5AS, and ZMP before those codes are treated as frozen. Until then, the table in section 7.2 is the working set and its version is stored on every observation.
+3. Optional: an operator override for any dealer whose inventory URL discovery fails or picks the wrong page, for example a store on a group site.
 4. Optional: a buyer maximum price and whether grey exterior, non-black interior, or DAP should become hard filters. Until then section 12 applies.
 5. Optional: hosting account and SMTP provider. Local single-container cron is the baseline if none is named.
 
 ## 17. Sources
 
-Design references, opened for the original design on 2026-10-19. They are not approved vehicle-data sources until a registry row says so. Re-check them before the first fetch.
+Design references, opened for the original design on 2026-10-19. The dealer list itself comes from the BMW USA dealer locator for Texas (section 7.1). A page below is a vehicle-data source only through its dealer’s registry row.
 
 - [Sewell locations directory](https://www.sewell.com/locations/) — lead for Plano and Grapevine BMW locations.
 - [DFW BMW buyer guide](https://www.autowebexpo.com/blog/2025/october/30/a-smart-buyers-guide-to-dfw-bmw-dealers.htm) — non-official lead only. Not a data source.
@@ -479,4 +483,5 @@ Option and color codes are taken from the BMW of North America X5 (G05 LCI) orde
 | --- | --- | --- |
 | 1.0 | 2026-10-19 | Original design. Goals, F1–F10, six tables, eight agent responsibilities, five views, four phases. |
 | 1.1 | 2026-10-19 | Review consolidation. F11–F24, lifecycle, price components, evidence rules, non-blocking review, safer checkpoint and schema, shortlist view. Several decisions left open. |
-| 1.2 | 2026-10-19 | This baseline. Merges 1.0 and 1.1 and locks the review: M Sport in scope, true zero versus failed read, comparison price, claim-check snapshots, staging, sticker DAP codes, VIN AG codes, no bot evasion, split time targets, and safety controls in Phase 1. |
+| 1.2 | 2026-10-19 | Merges 1.0 and 1.1 and locks the review: M Sport in scope, true zero versus failed read, comparison price, claim-check snapshots, staging, sticker DAP codes, VIN AG codes, no bot evasion, split time targets, and safety controls in Phase 1. |
+| 1.3 | 2026-10-19 | This baseline. Statewide dealer scope: every Texas BMW dealer on the BMW USA locator is in the registry and attempted every run, under the owner’s blanket approval, with no per-dealer terms gate. Adds F25 (automatic inventory-URL and platform discovery). Coverage denominator, politeness limits, time targets, phases, and owner inputs are updated to match. Vehicle scope is unchanged (new 2026 X5 xDrive40i). Robots, honest identification, and the no-evasion rules are unchanged. |

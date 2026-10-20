@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_macros.html" import tri, status, unit_row %}
+{% block heading %}Inventory · {{ units | length }} of {{ total }} eligible units{% endblock %}
+{% block content %}
+
+<form method="get" class="glass rounded-2xl p-4 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 text-xs" x-data>
+  <input type="hidden" name="run_id" value="{{ run.run_id }}">
+  {% macro sel(name, label, options, current) %}
+  <label class="space-y-1">
+    <span class="text-slate-400">{{ label }}</span>
+    <select name="{{ name }}" class="w-full bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5 text-slate-200" onchange="this.form.submit()">
+      <option value="">Any</option>
+      {% for opt in options %}<option value="{{ opt[0] }}" {% if current == opt[0] %}selected{% endif %}>{{ opt[1] }}{% if opt | length > 2 %} ({{ opt[2] }}){% endif %}</option>{% endfor %}
+    </select>
+  </label>
+  {% endmacro %}
+  {{ sel('dealer', 'Dealer', facets.get('dealer', []), q.get('dealer', '')) }}
+  {{ sel('city', 'City', facets.get('city', []), q.get('city', '')) }}
+  {{ sel('exterior', 'Exterior', facets.get('exterior', []), q.get('exterior', '')) }}
+  {{ sel('interior', 'Interior', facets.get('interior', []), q.get('interior', '')) }}
+  {{ sel('dap', 'Driving Assistance Pro', [('YES', 'Yes'), ('NO', 'No'), ('UNKNOWN', 'Unknown')], q.get('dap', '')) }}
+  {{ sel('msport', 'M Sport', [('yes', 'With M Sport'), ('no', 'Without')], q.get('msport', '')) }}
+  {{ sel('transit', 'Availability', [('lot', 'On lot'), ('transit', 'In transit')], q.get('transit', '')) }}
+  {{ sel('price', 'Cash price', [('present', 'Shown'), ('absent', 'Not shown / call')], q.get('price', '')) }}
+  {{ sel('massage', 'Massage seats', [('YES', 'Yes'), ('UNKNOWN', 'Unknown')], q.get('massage', '')) }}
+  {{ sel('roof', 'Panoramic roof', [('YES', 'Yes'), ('UNKNOWN', 'Unknown')], q.get('roof', '')) }}
+  {{ sel('exec', 'Executive pkg', [('YES', 'Yes'), ('UNKNOWN', 'Unknown')], q.get('exec', '')) }}
+  {{ sel('sufficiency', 'Evidence confidence ≥', [('80', '80'), ('60', '60'), ('40', '40')], q.get('sufficiency', '')) }}
+  {{ sel('sort', 'Sort', [('price', 'Price ↑'), ('msrp', 'MSRP ↑'), ('fit', 'Preference fit ↓'), ('dealer', 'Dealer')], q.get('sort', 'price')) }}
+  <div class="flex items-end gap-2">
+    <a href="/inventory?run_id={{ run.run_id }}" class="badge b-flag hover:bg-slate-700 py-1.5">Clear</a>
+    <a href="/export.csv?run_id={{ run.run_id }}" class="badge b-flag hover:bg-slate-700 py-1.5">CSV</a>
+  </div>
+</form>
+
+{% set gaps = dealer_runs | selectattr('status', 'ne', 'REPORTED') | list %}
+{% if gaps %}
+<div class="rounded-xl border border-amber-900/60 bg-amber-950/30 px-4 py-3 text-xs text-amber-200 flex flex-wrap gap-x-4 gap-y-1">
+  <span class="font-semibold">Coverage warning:</span>
+  {% for d in gaps %}<span>{{ d.name }} — {{ d.status }} ({{ d.reason_code or '—' }})</span>{% endfor %}
+  <span class="text-amber-300/70">Their units are absent from this list, not zero.</span>
+</div>
+{% endif %}
+
+<div class="glass rounded-2xl overflow-hidden">
+  {% if units %}
+  <div class="overflow-x-auto max-h-[70vh]">
+    <table class="w-full text-sm compact">
+      <thead class="sticky-head text-left text-[11px] uppercase tracking-wider text-slate-400">
+        <tr><th>VIN</th><th>Dealer</th><th class="text-right">Cash price</th><th class="text-right">MSRP</th><th>Exterior</th><th>Interior</th><th>DAP</th><th>Pkg</th><th>Status</th><th>Fit</th><th>Confidence</th><th>Seen</th></tr>
+      </thead>
+      <tbody>{% for u in units %}{{ unit_row(u, show_fit=True) }}{% endfor %}</tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-10 text-center text-slate-400">
+    <div class="text-3xl mb-2">∅</div>
+    {% if total == 0 %}No in-scope units in this published run. {% if gaps %}Some dealers were not read; see the warning above.{% endif %}
+    {% else %}No units match these filters.{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

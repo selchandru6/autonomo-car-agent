@@ -1,0 +1,20 @@
+# Buyer preferences (requirements 12). Hard constraints are not here; they are the scope
+# rules in the classifier. Everything below changes ranking, never eligibility.
+# Weights are relative. UNKNOWN never counts as a match.
+version: 1
+max_price_cents: null   # unset until the owner names a number and a price basis
+weights:
+  dap: 30
+  exterior_grey: 15
+  interior_non_black: 15
+  massage: 8
+  panoramic_roof: 6
+  sky_lounge: 6
+  executive: 5
+  climate_comfort: 5
+  air_suspension: 5
+  m_sport: 0            # included and flagged; the buyer can hide ZMP cars in the filter
+hard_filters:           # the owner MAY flip these later; configuration, not code
+  grey_exterior: false
+  non_black_interior: false
+  dap: false

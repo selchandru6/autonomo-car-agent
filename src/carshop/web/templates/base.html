@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AI car shopping{% endblock %} · X5 xDrive40i Texas monitor</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+  <link rel="stylesheet" href="/static/app.css">
+  <script>
+    tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui'] } } } };
+    const CHART_THEME = {
+      backgroundColor: 'transparent',
+      textStyle: { color: '#cbd5e1' },
+      color: ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#f472b6', '#fb923c', '#60a5fa', '#4ade80'],
+      axisLine: { lineStyle: { color: '#334155' } },
+    };
+    function mkChart(id, option) {
+      const el = document.getElementById(id); if (!el) return null;
+      const c = echarts.init(el, null, { renderer: 'canvas' });
+      option.backgroundColor = 'transparent';
+      option.textStyle = Object.assign({ color: '#cbd5e1' }, option.textStyle || {});
+      option.color = option.color || CHART_THEME.color;
+      c.setOption(option);
+      window.addEventListener('resize', () => c.resize());
+      return c;
+    }
+    const usd = v => v == null ? '—' : '$' + Math.round(v).toLocaleString();
+  </script>
+</head>
+<body class="h-full text-slate-200 antialiased">
+<div class="min-h-full flex">
+  <aside class="w-64 shrink-0 hidden lg:flex flex-col border-r border-slate-800/80 bg-slate-950/60">
+    <div class="px-5 py-5 border-b border-slate-800/80">
+      <div class="flex items-center gap-3">
+        <div class="h-9 w-9 rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 grid place-items-center font-black text-slate-950">X5</div>
+        <div>
+          <div class="font-semibold leading-tight">AI car shopping</div>
+          <div class="text-[11px] text-slate-400">2026 X5 xDrive40i · Texas</div>
+        </div>
+      </div>
+    </div>
+    {% set path = request.url.path %}
+    <nav class="flex-1 py-3 text-sm">
+      {% for href, label, icon in [
+        ('/', 'Overview', '◎'), ('/inventory', 'Inventory', '▤'), ('/shortlist', 'Shortlist', '★'),
+        ('/trends', 'Price & stock trends', '∿'), ('/health', 'Data health & coverage', '♥'),
+        ('/review', 'Review queue', '✓'), ('/runs', 'Runs & digest', '⟳')] %}
+      <a href="{{ href }}" class="flex items-center gap-3 px-5 py-2.5 text-slate-300 hover:bg-slate-800/60 {% if path == href %}nav-active{% endif %}">
+        <span class="w-5 text-center text-slate-500">{{ icon }}</span><span>{{ label }}</span>
+        {% if href == '/review' and pending %}<span class="ml-auto badge b-partial">{{ pending }}</span>{% endif %}
+      </a>
+      {% endfor %}
+    </nav>
+    <div class="px-5 py-4 border-t border-slate-800/80 text-[11px] text-slate-500 space-y-1">
+      <div>Registry: <span class="text-slate-300">{{ coverage_summary.reported }}/{{ coverage_summary.active }}</span> active TX dealers reported · {{ coverage_summary.no_source }} no source</div>
+      <div>Model: <span class="{{ 'text-emerald-400' if model_enabled else 'text-amber-400' }}">{{ 'enabled' if model_enabled else 'down (deterministic only)' }}</span></div>
+      <div>v{{ version }} · {{ git_sha }}</div>
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0">
+    <header class="sticky top-0 z-20 border-b border-slate-800/80 bg-slate-950/70 backdrop-blur px-6 py-3 flex items-center gap-4">
+      <div class="lg:hidden font-semibold">AI car shopping</div>
+      <h1 class="text-lg font-semibold">{% block heading %}{% endblock %}</h1>
+      <div class="ml-auto flex items-center gap-3 text-xs">
+        {% if run %}
+        <form method="get" class="flex items-center gap-2">
+          <label class="text-slate-400">Published run</label>
+          <select name="run_id" onchange="this.form.submit()" class="bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-slate-200">
+            {% for r in runs if r.status == 'PUBLISHED' %}
+            <option value="{{ r.run_id }}" {% if r.run_id == run.run_id %}selected{% endif %}>{{ r.snapshot_date }} · {{ r.trigger }} · {{ r.run_id[-6:] }}</option>
+            {% endfor %}
+          </select>
+        </form>
+        <span class="badge b-info">as of {{ run.ended_at | age }}</span>
+        {% endif %}
+        <a class="badge b-flag hover:bg-slate-700" href="/export.csv{% if run %}?run_id={{ run.run_id }}{% endif %}">CSV</a>
+        <a class="badge b-flag hover:bg-slate-700" href="/export.xlsx{% if run %}?run_id={{ run.run_id }}{% endif %}">XLSX</a>
+      </div>
+    </header>
+    <div class="px-6 py-6 space-y-6">
+      {% block content %}{% endblock %}
+      <footer class="pt-6 text-[11px] text-slate-500 leading-relaxed">
+        Advertised cash prices exclude tax, title and dealer fees unless itemised. MSRP is never substituted for a price. A VIN that disappears is
+        <em>missing, unverified</em>, never a sale. A dealer that was not read is a gap, not zero. Nothing on this screen is a forecast.
+        Unknown is not No.
+      </footer>
+    </div>
+  </main>
+</div>
+{% block scripts %}{% endblock %}
+</body>
+</html>
