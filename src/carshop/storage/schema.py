@@ -71,6 +71,7 @@ dealers = Table(
     Column("discovery_reason", String),
     Column("discovered_at", String),
     Column("source", String, nullable=False, server_default="locator"),
+    Column("discovery_fail_streak", Integer, nullable=False, server_default="0"),
 )
 
 # One row per locator snapshot that was turned into a registry (F1: monthly refresh).
@@ -155,6 +156,7 @@ observations = Table(
     Column("msrp_cents", Integer),
     Column("advertised_price_cents", Integer),
     Column("comparison_price_cents", Integer),
+    Column("price_basis", String),
     Column("dap_status", String, nullable=False),
     Column("m_sport", Boolean, nullable=False, default=False),
     Column("flags", Text, nullable=False, default="[]"),
@@ -173,6 +175,14 @@ observations = Table(
     ),
     Index("ix_observations_dealer_run", "dealer_id", "run_id"),
     Index("ix_observations_vin_fetched", "vin", "fetched_at"),
+)
+
+observation_flags = Table(
+    "observation_flags",
+    metadata,
+    Column("observation_id", Integer, ForeignKey("observations.observation_id"), primary_key=True),
+    Column("flag", String, primary_key=True),
+    Column("created_at", String, nullable=False),
 )
 
 exclusions = Table(
@@ -327,6 +337,41 @@ notification_events = Table(
     Column("created_at", String, nullable=False),
     Column("sent_at", String),
     UniqueConstraint("run_id", "recipient", "event_key", name="uq_notification_events_dedup"),
+)
+
+catalog_vehicles = Table(
+    "catalog_vehicles",
+    metadata,
+    Column("vin", String, primary_key=True),
+    Column("dealer_name", String, nullable=False),
+    Column("city", String),
+    Column("phone", String),
+    Column("year", Integer),
+    Column("model", String),
+    Column("trim", String),
+    Column("trim_code", String, nullable=False),
+    Column("stock", String),
+    Column("exterior", String),
+    Column("interior", String),
+    Column("mileage", Integer),
+    Column("msrp_cents", Integer),
+    Column("advertised_cents", Integer),
+    Column("listing_url", String),
+    Column("as_of", String, nullable=False),
+    Column("prior_dealer", String),
+    Column("packages_text", Text),
+    Column("imported_at", String, nullable=False),
+    Index("ix_catalog_vehicles_dealer", "dealer_name"),
+    Index("ix_catalog_vehicles_trim", "trim_code"),
+)
+
+catalog_features = Table(
+    "catalog_features",
+    metadata,
+    Column("vin", String, ForeignKey("catalog_vehicles.vin"), primary_key=True),
+    Column("feature", String, primary_key=True),
+    Column("status", String, nullable=False),
+    Column("quote", Text),
 )
 
 robots_snapshots = Table(

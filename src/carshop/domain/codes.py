@@ -27,6 +27,9 @@ class ReasonCode(StrEnum):
     SSRF_BLOCKED = "SSRF_BLOCKED"
     OFF_DOMAIN = "OFF_DOMAIN"
     ROBOTS_DISALLOWED = "ROBOTS_DISALLOWED"
+    # A refused connection or a TLS failure. Not retried (review G1, ADR 0006).
+    CONNECT_FAILED = "CONNECT_FAILED"
+    TLS_FAILED = "TLS_FAILED"
     SOURCE_NOT_APPROVED = "SOURCE_NOT_APPROVED"
     COUNT_ANOMALY = "COUNT_ANOMALY"
     # v1.3 (F25): a locator dealer with no discoverable public inventory URL is NO_SOURCE.
@@ -47,7 +50,6 @@ class ExclusionCode(StrEnum):
     OUT_OF_PATH = "OUT_OF_PATH"
     OUT_OF_REGION = "OUT_OF_REGION"
     VIN_CHECKSUM_FAIL = "VIN_CHECKSUM_FAIL"
-    CLASSIFICATION_CONFLICT = "CLASSIFICATION_CONFLICT"
 
 
 class Flag(StrEnum):
@@ -65,6 +67,7 @@ class Flag(StrEnum):
     TRANSFER_SUSPECTED = "TRANSFER_SUSPECTED"
     COLOR_UNMAPPED = "COLOR_UNMAPPED"
     SCRAPE_ANOMALY_SUSPECTED = "SCRAPE_ANOMALY_SUSPECTED"
+    PRICE_LABEL_UNKNOWN = "PRICE_LABEL_UNKNOWN"
 
 
 class Tri(StrEnum):
@@ -104,6 +107,15 @@ class PriceKind(StrEnum):
     PAYMENT = "PAYMENT"
     FEE = "FEE"
     ADDON = "ADDON"
+    UNCLASSIFIED = "UNCLASSIFIED"
+
+
+class PriceBasis(StrEnum):
+    """What a comparison price is measured against (review C4, vehicle-only basis)."""
+
+    VEHICLE_ONLY = "vehicle_only"
+    INCLUDES_FEES = "includes_fees"
+    UNKNOWN = "unknown"
 
 
 class LifecycleState(StrEnum):
@@ -155,7 +167,10 @@ class DiscoveryReason(StrEnum):
     SITEMAP = "sitemap"  # found in the sitemap
     UNFILTERED_NEW = "unfiltered_new"  # new-inventory page found but no X5 filter; wide page
     NO_HOSTNAME = "no_hostname"  # locator lists no website for the dealer
-    HOMEPAGE_UNREACHABLE = "homepage_unreachable"  # TLS/DNS/timeout on the homepage
+    HOMEPAGE_UNREACHABLE = "homepage_unreachable"  # homepage failed for an unclassified reason
+    HOMEPAGE_CONNECT_FAILED = "homepage_connect_failed"  # connection refused / DNS, not a timeout
+    HOMEPAGE_TLS_FAILED = "homepage_tls_failed"  # certificate or handshake failure
+    HOMEPAGE_TIMEOUT = "homepage_timeout"  # the homepage timed out
     HOMEPAGE_BLOCKED = "homepage_blocked"  # 403 / captcha on the homepage
     ROBOTS_DISALLOWED = "robots_disallowed"  # robots forbids the inventory paths
     NO_INVENTORY_LINK = "no_inventory_link"  # homepage and sitemap had no new-inventory URL

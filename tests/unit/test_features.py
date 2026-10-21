@@ -1,5 +1,10 @@
 from carshop.domain.codes import Feature, SourceKind, Sufficiency, Tri
-from carshop.domain.features import evaluate_dap, evaluate_features, merge_feature_sets
+from carshop.domain.features import (
+    evaluate_dap,
+    evaluate_features,
+    merge_feature_sets,
+    resolved_dap,
+)
 
 KW = {"url": "https://x/1", "page_hash": "h"}
 
@@ -64,5 +69,11 @@ def test_merge_yes_beats_unknown_and_conflicts_flagged() -> None:
             "5AS only", source_kind=SourceKind.STICKER, is_parsed_sticker_options=True, **KW
         )
     ]
-    conflict = {f.feature: f for f in merge_feature_sets(a, sticker_no)}
-    assert conflict[Feature.DAP].sufficiency is Sufficiency.CONFLICT
+    dap_rows = [f for f in merge_feature_sets(a, sticker_no) if f.feature is Feature.DAP]
+    assert len(dap_rows) == 2
+    assert {f.evidence.source_kind for f in dap_rows if f.evidence} == {
+        SourceKind.DETAIL,
+        SourceKind.STICKER,
+    }
+    assert all(f.sufficiency is Sufficiency.CONFLICT for f in dap_rows)
+    assert resolved_dap(dap_rows) is Tri.UNKNOWN

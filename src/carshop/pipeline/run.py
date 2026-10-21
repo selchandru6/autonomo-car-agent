@@ -85,6 +85,9 @@ async def execute_run(
     now: datetime | None = None,
     label: str | None = None,
 ) -> RunReport:
+    # Replay reprocesses stored pages. It never sends the digest (ADR 0004).
+    if trigger is Trigger.REPLAY:
+        notify = False
     settings.ensure_dirs()
     if registry is None:
         # v1.3 (F1): the registry is the monthly locator snapshot plus discovery. Build or
@@ -126,6 +129,8 @@ async def execute_run(
         model = _model_client(settings)
         repos.create_run(conn, run_id=run_id, snapshot_date=civil, trigger=trigger.value, config_version=f"{reg.version}:{reg.config_hash}",
                          model_status="ready" if model else "down", rerun_of=rerun_of, label=label, started_at=iso(now))  # fmt: skip
+        for d in targets:
+            repos.claim_dealer_run(conn, run_id, d.dealer_id)
         prior_counts = {d.dealer_id: _prior_count(conn, d.dealer_id) for d in targets}
         baselines = {d.dealer_id: repos.last_reported_run(conn, d.dealer_id) for d in targets}
 
@@ -154,66 +159,98 @@ async def execute_run(
                 result = DealerResult(dealer_id=dealer.dealer_id, status=DealerStatus.NOT_REPORTED, reason=ReasonCode.PARSER_FAILED,
                                       pages_expected=0, pages_read=0, pages_failed=0, raw_count=0, eligible_count=0, duration_ms=0,
                                       cost_usd=0.0, anomaly=False, observations=(), exclusions=(), attempts=(), review_reasons=((("", f"crash: {type(e).__name__}"),)))  # fmt: skip
-        # Storage: one transaction per dealer, committed as the dealer finishes (7.9).
-        with span("store", dealer_id=dealer.dealer_id), write_tx(engine) as conn:
-            baseline = baselines[dealer.dealer_id]
-            repos.store_dealer_result(conn, run_id, result, baseline_run_id=baseline)
-            if result.robots_hash is not None or result.status is not DealerStatus.NO_SOURCE:
-                repos.record_robots(
-                    conn,
-                    run_id,
-                    dealer.dealer_id,
-                    dealer.hostname,
-                    result.robots_hash,
-                    "disallowed" if result.reason is ReasonCode.ROBOTS_DISALLOWED else "allowed",
-                )
-            report.compare[dealer.dealer_id] = compare_dealer(conn, run_id, result, baseline)
-        report.dealers[dealer.dealer_id] = result.status
-        report.reasons[dealer.dealer_id] = result.reason
-        report.eligible[dealer.dealer_id] = result.eligible_count
+        # Storage: one transaction per dealer. A failure here must not cancel the other dealers.
+        try:
+            with span("store", dealer_id=dealer.dealer_id), write_tx(engine) as conn:
+                baseline = baselines[dealer.dealer_id]
+                repos.store_dealer_result(conn, run_id, result, baseline_run_id=baseline)
+                if result.robots_hash is not None or result.status is not DealerStatus.NO_SOURCE:
+                    repos.record_robots(
+                        conn,
+                        run_id,
+                        dealer.dealer_id,
+                        dealer.hostname,
+                        result.robots_hash,
+                        "disallowed"
+                        if result.reason is ReasonCode.ROBOTS_DISALLOWED
+                        else "allowed",
+                    )
+                report.compare[dealer.dealer_id] = compare_dealer(conn, run_id, result, baseline)
+            report.dealers[dealer.dealer_id] = result.status
+            report.reasons[dealer.dealer_id] = result.reason
+            report.eligible[dealer.dealer_id] = result.eligible_count
+        except Exception as e:
+            log.exception("dealer store failed", dealer=dealer.dealer_id)
+            report.dealers[dealer.dealer_id] = DealerStatus.NOT_REPORTED
+            report.reasons[dealer.dealer_id] = ReasonCode.PARSER_FAILED
+            report.eligible[dealer.dealer_id] = 0
+            try:
+                with write_tx(engine) as conn:
+                    repos.mark_dealer_failed(
+                        conn, run_id, dealer.dealer_id, f"store failed: {type(e).__name__}"
+                    )
+            except Exception:
+                log.exception("could not record dealer store failure", dealer=dealer.dealer_id)
 
     with span("run", run_id=run_id, trigger=trigger.value):
         try:
-            if use_browser:
-                async with BrowserRenderer(settings) as browser:
-                    await asyncio.gather(*(branch(d, browser) for d in targets))
-            else:
-                await asyncio.gather(*(branch(d, None) for d in targets))
-        finally:
-            await http.aclose()
+            try:
+                if use_browser:
+                    async with BrowserRenderer(settings) as browser:
+                        outcomes = await asyncio.gather(
+                            *(branch(d, browser) for d in targets), return_exceptions=True
+                        )
+                else:
+                    outcomes = await asyncio.gather(
+                        *(branch(d, None) for d in targets), return_exceptions=True
+                    )
+                for outcome in outcomes:
+                    if isinstance(outcome, Exception):
+                        log.error("dealer branch escaped", error=type(outcome).__name__)
+            finally:
+                await http.aclose()
 
-        with write_tx(engine) as conn:
-            report.transfer_suspected = flag_cross_dealer(conn, run_id)
-            report.model_status = resolver.usage.status
-            report.model_spend_usd = resolver.usage.spend_usd
-            repos.finish_run(conn, run_id, RunStatus.PUBLISHED, resolver.usage.spend_usd)
-            from sqlalchemy import update
+            with write_tx(engine) as conn:
+                report.transfer_suspected = flag_cross_dealer(conn, run_id)
+                report.model_status = resolver.usage.status
+                report.model_spend_usd = resolver.usage.spend_usd
+                repos.finish_run(conn, run_id, RunStatus.PUBLISHED, resolver.usage.spend_usd)
+                from sqlalchemy import update
 
-            conn.execute(
-                update(s.runs)
-                .where(s.runs.c.run_id == run_id)
-                .values(model_status=resolver.usage.status)
-            )
-        report.status = RunStatus.PUBLISHED
-        report.wall_clock_s = int(time.monotonic() - wall_start)
-        if report.wall_clock_s > settings.run_wall_clock_s:
-            # Reported, never hidden (section 4 Freshness): the digest and screen show data age.
-            log.warning(
-                "run exceeded wall-clock target",
-                wall_clock_s=report.wall_clock_s,
-                target_s=settings.run_wall_clock_s,
-            )
+                conn.execute(
+                    update(s.runs)
+                    .where(s.runs.c.run_id == run_id)
+                    .values(model_status=resolver.usage.status)
+                )
+            report.status = RunStatus.PUBLISHED
+            report.wall_clock_s = int(time.monotonic() - wall_start)
+            if report.wall_clock_s > settings.run_wall_clock_s:
+                # Reported, never hidden (section 4 Freshness): the digest and screen show data age.
+                log.warning(
+                    "run exceeded wall-clock target",
+                    wall_clock_s=report.wall_clock_s,
+                    target_s=settings.run_wall_clock_s,
+                )
 
-        if notify:
-            report.notifications = deliver_digest(engine, settings, run_id)
-        try:
-            path = backup(settings.db_path, settings.backups_dir)
-            verify_restore(path)
-            report.backup_path = str(path)
-            prune_backups(settings.backups_dir)
-            prune_snapshots(settings.snapshots_dir, settings.snapshot_retention_days)
+            if notify:
+                report.notifications = deliver_digest(engine, settings, run_id)
+            try:
+                path = backup(settings.db_path, settings.backups_dir)
+                verify_restore(path)
+                report.backup_path = str(path)
+                prune_backups(settings.backups_dir)
+                prune_snapshots(settings.snapshots_dir, settings.snapshot_retention_days)
+            except Exception:
+                log.exception("backup failed")
         except Exception:
-            log.exception("backup failed")
+            log.exception("run failed", run_id=run_id)
+            try:
+                with write_tx(engine) as conn:
+                    repos.finish_run(conn, run_id, RunStatus.FAILED, resolver.usage.spend_usd)
+            except Exception:
+                log.exception("could not mark run failed", run_id=run_id)
+            report.status = RunStatus.FAILED
+            raise
     log.info(
         "run published",
         run_id=run_id,

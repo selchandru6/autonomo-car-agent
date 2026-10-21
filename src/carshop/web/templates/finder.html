@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Texas X5 Finder</title>
+  <script>
+    try {
+      var savedTheme = localStorage.getItem("x5finder.theme");
+      if (savedTheme === "light" || savedTheme === "dark") document.documentElement.setAttribute("data-theme", savedTheme);
+    } catch (e) {}
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Public+Sans:wght@400;500;600&display=swap">
+  <style>
+    :root {
+      --bg: #f3f5f8; --surface: #ffffff; --sunk: #e9edf2; --ink: #142030; --muted: #586679; --line: #d9dfe7;
+      --accent: #1b5ec9; --accent-ink: #ffffff; --accent-soft: #e3ecfb;
+      --good: #17784d; --good-soft: #e0f2e9; --warn: #9a5b00; --warn-soft: #fbf0dc; --dim: #a7b1be;
+      --display: "Barlow Semi Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+      --body: "Public Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+      --r: 10px; color-scheme: light;
+    }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+      --bg: #0f151d; --surface: #17202b; --sunk: #1d2834; --ink: #e6ecf3; --muted: #9aa8b9; --line: #2a3644;
+      --accent: #6aa2ff; --accent-ink: #0b1420; --accent-soft: #1c2c45;
+      --good: #5bd39b; --good-soft: #14302a; --warn: #f0b660; --warn-soft: #33281a; --dim: #4b5869; color-scheme: dark; } }
+    :root[data-theme="dark"] {
+      --bg: #0f151d; --surface: #17202b; --sunk: #1d2834; --ink: #e6ecf3; --muted: #9aa8b9; --line: #2a3644;
+      --accent: #6aa2ff; --accent-ink: #0b1420; --accent-soft: #1c2c45;
+      --good: #5bd39b; --good-soft: #14302a; --warn: #f0b660; --warn-soft: #33281a; --dim: #4b5869; color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--body); margin: 0; }
+    .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 16px 48px; }
+    h1, h2, h3 { font-family: var(--display); line-height: 1.15; text-wrap: balance; margin: 0; }
+    .num, .price { font-variant-numeric: tabular-nums; }
+    button, input, select { font: inherit; color: inherit; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    a { color: var(--accent); }
+    header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-bottom: 18px; }
+    header.top h1 { font-size: 30px; font-weight: 700; }
+    header.top p { margin: 0; color: var(--muted); }
+    .flow { margin: 0 0 14px; }
+    .flow ol { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; }
+    @media (max-width: 800px) { .flow ol { grid-template-columns: 1fr 1fr; } }
+    .flow button, .views button { text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); cursor: pointer; }
+    .flow button { width: 100%; padding: 12px 14px; display: grid; gap: 2px; }
+    .flow button:hover, .views button:hover { border-color: var(--accent); }
+    .flow .step { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    .flow strong { font-family: var(--display); font-size: 22px; font-weight: 650; }
+    .views { display: flex; gap: 8px; margin: 0 0 16px; }
+    .views button { padding: 8px 14px; font-weight: 600; }
+    .views button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+    .check-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 14px 0; }
+    .check-stats div { background: var(--sunk); border-radius: var(--r); padding: 12px 14px; }
+    .check-stats .big { font-family: var(--display); font-size: 28px; font-weight: 700; line-height: 1; }
+    .steps { display: grid; gap: 14px; }
+    .theme-controls { margin-left: auto; display: flex; gap: 8px; }
+    .theme-controls button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 12px; cursor: pointer; }
+    .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 20px; align-items: start; }
+    @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+    .rail { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); position: sticky; top: 12px; }
+    @media (max-width: 900px) { .rail { position: static; } }
+    .rail > summary { list-style: none; cursor: pointer; padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; }
+    .rail > summary::-webkit-details-marker { display: none; }
+    .rail > summary h2 { font-size: 21px; }
+    .rail > summary .hint { font-size: 12px; color: var(--muted); }
+    .rail-body { padding: 0 16px 16px; display: grid; gap: 18px; }
+    .group h3 { font: 600 12px/1.2 var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 8px; }
+    .row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 5px 11px; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+    .chip .sw, .colors .sw { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line); flex: none; }
+    .chip .ct { color: var(--muted); font-size: 12px; }
+    .budget-out { font-family: var(--display); font-size: 22px; font-weight: 600; }
+    input[type="range"] { width: 100%; accent-color: var(--accent); }
+    select { width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+    .check { display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer; }
+    .pk { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; }
+    .pk .name { font-size: 14px; }
+    .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+    .seg button { border: 0; background: transparent; padding: 4px 9px; font-size: 12px; cursor: pointer; }
+    .seg button + button { border-left: 1px solid var(--line); }
+    .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+    .seg button[data-v="must"][aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+    .reset { justify-self: start; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; font-size: 13px; text-decoration: underline; }
+    .note { font-size: 12px; color: var(--muted); margin: 0; }
+    main { display: grid; gap: 20px; min-width: 0; }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; min-width: 0; }
+    .answer { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px 24px; }
+    .answer .big { font-family: var(--display); font-size: 40px; font-weight: 700; line-height: 1; }
+    .answer .lbl { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .answer .lead .big { color: var(--accent); }
+    .panel h2 { font-size: 22px; margin-bottom: 4px; }
+    .sub { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+    .range { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 600px) { .range { grid-template-columns: 1fr; } }
+    .spread { margin: 12px 0 0; }
+    .chart svg { display: block; width: 100%; min-width: 560px; height: auto; }
+    .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+    .results-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 16px; }
+    .sort { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+    .sort select { width: auto; }
+    .section-title { font: 600 13px/1.2 var(--body); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 18px 0 10px; display: flex; gap: 8px; align-items: center; }
+    .section-title .count { background: var(--sunk); color: var(--ink); border-radius: 999px; padding: 1px 8px; letter-spacing: 0; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+    .car { border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 10px; background: var(--surface); min-width: 0; }
+    .car.best { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .car-top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+    .car .price { font-family: var(--display); font-size: 30px; font-weight: 700; line-height: 1; }
+    .car .price.none { font-size: 18px; color: var(--muted); font-weight: 600; line-height: 1.2; }
+    .car .vsmsrp, .where .dist, .car-foot .seen { color: var(--muted); }
+    .car .vsmsrp { font-size: 12px; margin-top: 3px; }
+    .badge { font-size: 12px; font-weight: 600; border-radius: 999px; padding: 3px 9px; }
+    .badge.good { background: var(--good-soft); color: var(--good); }
+    .badge.maybe { background: var(--warn-soft); color: var(--warn); }
+    .wishline { font-size: 13px; }
+    .colors { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+    .colors span { display: inline-flex; gap: 6px; align-items: center; }
+    .feats { display: flex; flex-wrap: wrap; gap: 6px; }
+    .feat { font-size: 12px; border-radius: 6px; padding: 2px 7px; border: 1px solid var(--line); }
+    .feat.yes { background: var(--good-soft); border-color: transparent; color: var(--good); }
+    .feat.unk { color: var(--muted); border-style: dashed; }
+    .car-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; }
+    .cmp { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+    .empty { border: 1px dashed var(--line); border-radius: var(--r); padding: 18px; color: var(--muted); }
+    .more { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; cursor: pointer; margin-top: 12px; }
+    .dealers { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px 20px; font-size: 14px; }
+    .dealers ul { list-style: none; margin: 0; padding: 0; }
+    .dealers li { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 7px; }
+    details.panel > summary { cursor: pointer; }
+    details.panel > summary h2 { display: inline; }
+    .tray { position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); color: var(--ink); border-top: 1px solid var(--line); padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); max-height: 70vh; overflow: auto; }
+    .tray-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; max-width: 1240px; margin: 0 auto; }
+    .tray-head button { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+    .tray table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 14px; }
+    .tray th, .tray td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    .tray th { color: var(--muted); font-weight: 500; width: 190px; }
+    .yes { color: var(--good); font-weight: 600; }
+    .unk { color: var(--muted); }
+    footer.fine { margin-top: 28px; font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Texas X5 Finder</h1>
+    <p>One daily pass: read the dealer sites, keep the listings that check out, then choose a car. Last check <span id="asof"></span>.</p>
+    <span class="theme-controls">
+      <button type="button" id="themeBtn" aria-label="Switch to light mode">Light mode</button>
+      <button type="button" id="themeSystem">Use system setting</button>
+    </span>
+  </header>
+  <section class="flow" aria-label="Daily workflow">
+    <ol>
+      <li><button type="button" data-view="check"><span class="step">1 · Collect</span><strong>{{ payload.flow.checked }} of {{ payload.flow.dealers }} dealers</strong><span class="note">Every day at {{ payload.flow.when }}</span></button></li>
+      <li><button type="button" data-view="check"><span class="step">2 · Check</span><strong>{{ payload.flow.kept }} cars kept</strong><span class="note">Only listings we can trust</span></button></li>
+      <li><button type="button" data-view="cars"><span class="step">3 · Choose</span><strong id="flowChoose">Your wish list</strong><span class="note" id="flowChooseNote">See which cars fit</span></button></li>
+      <li><button type="button" data-view="check"><span class="step">4 · Update</span><strong>Once a day</strong><span class="note">Next pass at {{ payload.flow.when }}</span></button></li>
+    </ol>
+  </section>
+  <nav class="views" aria-label="Home screen">
+    <button type="button" id="viewCars" data-view="cars" aria-pressed="true">Cars for you</button>
+    <button type="button" id="viewCheck" data-view="check" aria-pressed="false">Today's check</button>
+  </nav>
+  <div id="carsView">
+  <div class="layout">
+    <details class="rail" id="rail" open>
+      <summary><h2>My wish list</h2><span class="hint">Saved on this device</span></summary>
+      <div class="rail-body">
+        <div class="group">
+          <h3>Budget</h3>
+          <div class="budget-out num" id="budgetOut"></div>
+          <input type="range" id="budget" min="74000" max="94000" step="500" aria-label="Maximum price">
+          <p class="note">Cash price before tax, title and dealer fees.</p>
+        </div>
+        <div class="group">
+          <h3>Location</h3>
+          <label class="note" for="near">I'm near</label>
+          <select id="near" aria-label="I'm near"></select>
+          <div class="row" id="radius" style="margin-top:8px"></div>
+        </div>
+        <div class="group">
+          <h3>Packages</h3>
+          <div class="pk" id="pkgs"></div>
+          <p class="note" style="margin-top:8px"><b>Must</b> = only show cars where the dealer lists it. <b>Nice</b> = rank those cars higher.</p>
+        </div>
+        <div class="group">
+          <h3>Exterior colors I like</h3>
+          <div class="row" id="extChips"></div>
+        </div>
+        <div class="group">
+          <h3>Interior colors I like</h3>
+          <div class="row" id="intChips"></div>
+          <label class="check" style="margin-top:8px"><input type="checkbox" id="colorsOnly"> Only show these colors</label>
+        </div>
+        <div class="group">
+          <h3>Availability</h3>
+          <label class="check"><input type="checkbox" id="transit"> Include cars still on the way to the dealer</label>
+        </div>
+        <button class="reset" id="reset" type="button">Reset to my saved preferences</button>
+      </div>
+    </details>
+    <main>
+      <section class="panel" aria-label="Summary">
+        <div class="answer">
+          <div class="lead"><div class="big num" id="aMatch"></div><div class="lbl" id="aMatchLbl"></div></div>
+          <div><div class="big num" id="aLow"></div><div class="lbl" id="aLowLbl"></div></div>
+          <div><div class="big num" id="aTypical"></div><div class="lbl" id="aTypicalLbl"></div></div>
+          <div><div class="big" id="aTrend" style="font-size:28px"></div><div class="lbl" id="aTrendLbl"></div></div>
+        </div>
+      </section>
+      <section class="panel" aria-labelledby="rangeTitle">
+        <h2 id="rangeTitle">Price range today</h2>
+        <p class="sub">The cheapest and the most expensive car in Texas, whatever your wish list says.</p>
+        <div id="range"></div>
+      </section>
+      <section class="panel" aria-labelledby="bandTitle">
+        <h2 id="bandTitle">Where prices sit today</h2>
+        <p class="sub">Each dot is one car for sale. Filled dots fit your wish list.</p>
+        <div class="chart" id="band"></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>Fits your wish list</span><span><i style="background:var(--dim)"></i>Other cars</span><span id="legBudget"></span></div>
+      </section>
+      <section class="panel" aria-labelledby="resTitle">
+        <div class="results-head">
+          <h2 id="resTitle">Cars for you</h2>
+          <label class="sort" for="sort">Sort by
+            <select id="sort">
+              <option value="match">Best match</option>
+              <option value="price">Lowest price</option>
+              <option value="near">Nearest</option>
+            </select>
+          </label>
+        </div>
+        <div id="results"></div>
+      </section>
+      <section class="panel" aria-labelledby="trendTitle">
+        <h2 id="trendTitle">Price changes</h2>
+        <p class="sub" id="trendSub"></p>
+        <div id="trendBody"></div>
+      </section>
+    </main>
+  </div>
+  </div>
+  <section id="checkView" hidden>
+    <div class="panel steps">
+      <div>
+        <h2>Today's check</h2>
+        <p class="sub">The same pass that fills the car list. It runs once a day. It is not a live feed.</p>
+      </div>
+      <div>
+        <h3>Collect</h3>
+        <p>At {{ payload.flow.when }} we read each Texas BMW dealer website. The last finished check is {{ payload.flow.asOfLabel }}. <strong>{{ payload.flow.checked }} of {{ payload.flow.dealers }} dealers</strong> answered. The others are listed below with the reason we stopped.</p>
+      </div>
+      <div>
+        <h3>Check the listings</h3>
+        <p>A car is shown only when it is a new 2026 X5 xDrive40i and the listing passed the check. Cars that fail that check stay off your list. A car with no cash price stays on the list and says why.</p>
+        <div class="check-stats">
+          <div><div class="big num">{{ payload.flow.kept }}</div><div class="note">cars kept</div></div>
+          <div><div class="big num">{{ payload.flow.priced }}</div><div class="note">with a cash price</div></div>
+          <div><div class="big num">{{ payload.flow.waiting }}</div><div class="note">waiting for a person to confirm</div></div>
+        </div>
+        {% if payload.flow.waiting %}
+        <p>{{ payload.flow.waiting }} listings are waiting for a person to confirm them, so they are not in your list yet.</p>
+        {% else %}
+        <p>Nothing is waiting for a person to confirm. Every car that passed the check is in your list.</p>
+        {% endif %}
+      </div>
+      <div>
+        <h3>What changed since the previous check</h3>
+        <div class="check-stats">
+          <div><div class="big num">{{ payload.flow.added }}</div><div class="note">cars we had not seen before</div></div>
+          <div><div class="big num">{{ payload.flow.missing }}</div><div class="note">not on the site this time — not a sale</div></div>
+          <div><div class="big num">{{ payload.flow.priceChanges }}</div><div class="note">price changes on the same car</div></div>
+        </div>
+      </div>
+      <div>
+        <h3>Update</h3>
+        <p>The next pass is set for {{ payload.flow.when }} and replaces this list. Use <button type="button" class="reset" data-view="cars">Cars for you</button> to set a wish list against the cars from this check.</p>
+      </div>
+      <div>
+        <h3>Dealers we checked <span class="sub" id="dealerSum"></span></h3>
+        <div class="dealers" id="dealers"></div>
+      </div>
+    </div>
+  </section>
+  <footer class="fine">Cash price before tax, title and dealer fees. The list is replaced once a day at {{ payload.flow.when }}.</footer>
+</div>
+<div class="tray" id="tray" hidden>
+  <div class="tray-head"><b id="trayTitle"></b><span style="display:flex;gap:8px"><button type="button" id="trayToggle">Hide</button><button type="button" id="trayClear">Clear</button></span></div>
+  <div class="tray-table" id="trayTable"></div>
+</div>
+<script>
+const D = {{ payload | tojson_safe }};
+const FEATS = [
+  { k: "DAP", label: "Driving Assistance Professional", short: "Driving Assist Pro" },
+  { k: "PANORAMIC_ROOF", label: "Panoramic roof", short: "Panoramic roof" },
+  { k: "SKY_LOUNGE", label: "Sky Lounge LED roof", short: "Sky Lounge" },
+  { k: "MASSAGE", label: "Massage seats", short: "Massage seats" },
+  { k: "M_SPORT", label: "M Sport package", short: "M Sport" },
+  { k: "EXECUTIVE", label: "Executive package", short: "Executive" },
+  { k: "CLIMATE_COMFORT", label: "Climate Comfort package", short: "Climate Comfort" },
+  { k: "AIR_SUSPENSION", label: "Air suspension", short: "Air suspension" },
+];
+const SW = {
+  "Alpine White": "#f1f1ec", "Mineral White": "#e3e3dd", "Black Sapphire": "#1a1c22", "Carbon Black": "#1c2634",
+  "Skyscraper Grey": "#8b9198", "Brooklyn Grey": "#9c9e99", "Dravit Grey": "#696d6c", "Tanzanite Blue II": "#22305f",
+  "Manhattan Green": "#3c4b3d", "Grigio Telesto": "#8e9195", "Frozen Pure Grey": "#b9bcbd", "Blue Ridge Mountain": "#3e5570",
+  "Black": "#1b1b1b", "Cognac": "#9a5a2e", "Coffee": "#4a3226", "Silverstone": "#cbc5b8", "Tartufo": "#6b4f3a", "Ivory White": "#ece6d7",
+};
+const DEFAULT_WISH = {
+  budget: null, near: "any", radius: null, transit: true, colorsOnly: false, sort: "match",
+  ext: ["Skyscraper Grey", "Brooklyn Grey", "Dravit Grey", "Frozen Pure Grey"],
+  int: ["Cognac", "Coffee", "Tartufo", "Ivory White", "Silverstone"],
+  feats: { DAP: "must", PANORAMIC_ROOF: "nice", MASSAGE: "nice" },
+};
+const KEY = "x5finder.wish.v1";
+const dealerById = Object.fromEntries(D.dealers.map(d => [d.id, d]));
+const usd = c => c == null ? "" : "$" + Math.round(c / 100).toLocaleString("en-US");
+const fmtDay = iso => iso ? new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+const cities = {};
+for (const d of D.dealers) if (d.lat != null) (cities[d.city] ||= []).push([d.lat, d.lon]);
+const CITY = Object.fromEntries(Object.entries(cities).map(([c, pts]) =>
+  [c, [pts.reduce((a, p) => a + p[0], 0) / pts.length, pts.reduce((a, p) => a + p[1], 0) / pts.length]]));
+function miles(a, b) {
+  const R = 3958.8, r = x => x * Math.PI / 180;
+  const dLat = r(b[0] - a[0]), dLon = r(b[1] - a[1]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a[0])) * Math.cos(r(b[0])) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+let wish = load();
+let compare = [];
+let showAll = { match: 6, maybe: 6 };
+function load() {
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.feats) return { ...structuredClone(DEFAULT_WISH), ...s }; } catch (e) {}
+  return structuredClone(DEFAULT_WISH);
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(wish)); } catch (e) {} }
+function distanceTo(car) {
+  if (wish.near === "any") return null;
+  const d = dealerById[car.dealer];
+  return d && d.lat != null ? miles(CITY[wish.near], [d.lat, d.lon]) : null;
+}
+function judge(car) {
+  const out = [], wishes = [];
+  const dist = distanceTo(car);
+  if (wish.budget != null) {
+    if (car.price == null) wishes.push({ label: "Within budget", s: "unk" });
+    else if (car.price <= wish.budget * 100) wishes.push({ label: "Within budget", s: "yes" });
+    else out.push("over budget");
+  }
+  if (wish.radius != null && dist != null && dist > wish.radius) out.push("too far");
+  if (!wish.transit && car.inTransit) out.push("still in transit");
+  if (wish.ext.length) {
+    const ok = wish.ext.includes(car.ext);
+    if (!ok && wish.colorsOnly) out.push("exterior color"); else wishes.push({ label: car.ext + " exterior", s: ok ? "yes" : "no" });
+  }
+  if (wish.int.length) {
+    const ok = wish.int.includes(car.int);
+    if (!ok && wish.colorsOnly) out.push("interior color"); else wishes.push({ label: car.int + " interior", s: ok ? "yes" : "no" });
+  }
+  const mustMissing = [];
+  for (const f of FEATS) {
+    const w = wish.feats[f.k]; if (!w) continue;
+    const has = car.feats[f.k] === "yes";
+    wishes.push({ label: f.short, s: has ? "yes" : "unk", must: w === "must" });
+    if (w === "must" && !has) mustMissing.push(f.short);
+  }
+  const met = wishes.filter(w => w.s === "yes").length;
+  const group = out.length ? "out" : mustMissing.length ? "maybe" : "match";
+  return { group, out, wishes, met, total: wishes.length, mustMissing, dist };
+}
+function rank(list) {
+  const by = {
+    match: (a, b) => (b.j.met - a.j.met) || ((a.c.price ?? 1e12) - (b.c.price ?? 1e12)),
+    price: (a, b) => ((a.c.price ?? 1e12) - (b.c.price ?? 1e12)) || (b.j.met - a.j.met),
+    near: (a, b) => ((a.j.dist ?? 1e9) - (b.j.dist ?? 1e9)) || ((a.c.price ?? 1e12) - (b.c.price ?? 1e12)),
+  }[wish.sort];
+  return list.sort(by);
+}
+function median(xs) { const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
+function quart(xs, q) { const s = [...xs].sort((a, b) => a - b); const i = (s.length - 1) * q, lo = Math.floor(i); return s[lo] + (s[Math.ceil(i)] - s[lo]) * (i - lo); }
+function render() {
+  const all = D.cars.map(c => ({ c, j: judge(c) }));
+  const match = rank(all.filter(x => x.j.group === "match"));
+  const maybe = rank(all.filter(x => x.j.group === "maybe"));
+  const out = all.filter(x => x.j.group === "out");
+  const priced = D.cars.filter(c => c.price != null).map(c => c.price);
+  document.getElementById("aMatch").textContent = match.length;
+  document.getElementById("aMatchLbl").textContent = "cars fit your wish list" + (maybe.length ? " · " + maybe.length + " more might" : "");
+  document.getElementById("flowChoose").textContent = match.length + " cars fit";
+  document.getElementById("flowChooseNote").textContent = maybe.length ? maybe.length + " more might" : "from this check";
+  const mp = match.filter(x => x.c.price != null).map(x => x.c.price);
+  const lowSet = mp.length ? mp : priced;
+  document.getElementById("aLow").textContent = lowSet.length ? usd(Math.min(...lowSet)) : "—";
+  document.getElementById("aLowLbl").textContent = mp.length ? "lowest price among your matches" : "lowest price in Texas";
+  document.getElementById("aTypical").textContent = priced.length ? usd(median(priced)) : "—";
+  document.getElementById("aTypicalLbl").textContent = priced.length ? "typical price · most sell for " + usd(quart(priced, .25)) + "–" + usd(quart(priced, .75)) : "no cash prices yet";
+  const t = trendStats();
+  document.getElementById("aTrend").textContent = !t.both ? "Needs more days" : t.changed ? (t.down >= t.up ? "▼ Going down" : "▲ Going up") : "● Steady";
+  document.getElementById("aTrendLbl").textContent = t.both
+    ? (t.changed ? t.changed + " price changes" : "no price changes") + " across " + t.both + " cars since " + fmtDay(t.first)
+    : "needs two days of checks";
+  renderRange(all);
+  drawBand(all);
+  renderResults(match, maybe, out);
+  renderTrend(t);
+  renderTray();
+}
+function trendStats() {
+  let both = 0, up = 0, down = 0, first = D.days[0], changes = [];
+  for (const c of D.cars) {
+    const h = (c.history || []).filter(p => p[1] != null);
+    if (h.length < 2) continue;
+    both++;
+    const a = h[0][1], b = h[h.length - 1][1];
+    if (Math.abs(b - a) >= 100) { b < a ? down++ : up++; changes.push({ c, from: a, to: b, d0: h[0][0], d1: h[h.length - 1][0] }); }
+  }
+  return { both, up, down, changed: up + down, first, changes };
+}
+function pickExtreme(cars, high) {
+  return cars.reduce((best, c) => {
+    if (!best) return c;
+    if (c.price !== best.price) return (high ? c.price > best.price : c.price < best.price) ? c : best;
+    if ((c.firstSeen || "") !== (best.firstSeen || "")) return (c.firstSeen || "") < (best.firstSeen || "") ? c : best;
+    return c.vin < best.vin ? c : best;
+  }, null);
+}
+function wishLine(j) {
+  if (j.group === "match") return "Fits your wish list · meets " + j.met + " of " + j.total + " wishes";
+  if (j.group === "maybe") return "Might fit: not listed: " + j.mustMissing.join(", ");
+  return "Outside your limits: " + j.out.join(", ");
+}
+function renderRange(all) {
+  const el = document.getElementById("range");
+  const priced = all.filter(x => x.c.price != null);
+  if (!priced.length) { el.innerHTML = '<div class="empty">No dealer is showing a cash price right now.</div>'; return; }
+  const low = pickExtreme(priced.map(x => x.c), false);
+  const high = pickExtreme(priced.map(x => x.c), true);
+  if (low.vin === high.vin) {
+    el.innerHTML = '<h3 class="section-title">Only car with a cash price</h3>' + card(priced.find(x => x.c.vin === low.vin), 0, "range");
+    return;
+  }
+  const lowJ = priced.find(x => x.c.vin === low.vin);
+  const highJ = priced.find(x => x.c.vin === high.vin);
+  el.innerHTML = '<div class="range"><div><h3 class="section-title">Lowest price in Texas</h3>' + card(lowJ, 0, "range") +
+    '</div><div><h3 class="section-title">Highest price in Texas</h3>' + card(highJ, 0, "range") +
+    '</div></div><p class="spread"><b class="num">' + usd(high.price - low.price) + ' difference</b> between the lowest and highest price · ' +
+    priced.length + ' cars have a cash price.</p>';
+}
+function drawBand(all) {
+  const pts = all.filter(x => x.c.price != null);
+  const box = document.getElementById("band");
+  if (!pts.length) { box.innerHTML = ""; return; }
+  const lo = Math.floor(Math.min(...pts.map(x => x.c.price)) / 100 / 2500) * 2500;
+  const hi = Math.ceil(Math.max(...pts.map(x => x.c.price)) / 100 / 2500) * 2500;
+  const span = Math.max(hi - lo, 1);
+  const W = 900, padL = 20, padR = 20, top = 16, dotR = 5, bin = 500;
+  const x = v => padL + (v - lo) / span * (W - padL - padR);
+  const stacks = {};
+  const placed = pts.slice().sort((a, b) => (a.j.group === "match") - (b.j.group === "match")).map(p => {
+    const b = Math.round(p.c.price / 100 / bin) * bin; const n = (stacks[b] = (stacks[b] || 0) + 1) - 1; return { p, b, n };
+  });
+  const maxStack = Math.max(...Object.values(stacks));
+  const H = top + maxStack * (dotR * 2 + 2) + 34;
+  const base = H - 30;
+  let s = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Price of every car for sale">';
+  for (let v = lo; v <= hi; v += 2500) {
+    s += '<line x1="' + x(v) + '" x2="' + x(v) + '" y1="' + (top - 6) + '" y2="' + base + '" stroke="var(--line)" stroke-width="1"/>';
+    s += '<text x="' + x(v) + '" y="' + (base + 18) + '" text-anchor="middle" font-size="12" fill="var(--muted)">' + esc(usd(v * 100).replace(",000", "k")) + '</text>';
+  }
+  if (wish.budget != null && wish.budget >= lo && wish.budget <= hi) {
+    s += '<line x1="' + x(wish.budget) + '" x2="' + x(wish.budget) + '" y1="' + (top - 10) + '" y2="' + base + '" stroke="var(--ink)" stroke-width="1.5" stroke-dasharray="4 3"/>';
+    s += '<text x="' + (x(wish.budget) + 5) + '" y="' + top + '" font-size="12" fill="var(--ink)">Your budget</text>';
+  }
+  for (const item of placed) {
+    const cy = base - dotR - 2 - item.n * (dotR * 2 + 2);
+    const fit = item.p.j.group === "match";
+    const dealer = dealerById[item.p.c.dealer];
+    s += '<circle cx="' + x(item.b) + '" cy="' + cy + '" r="' + dotR + '" fill="' + (fit ? "var(--accent)" : "var(--dim)") + '"><title>' +
+      esc(usd(item.p.c.price) + " · " + item.p.c.ext + " / " + item.p.c.int + " · " + (dealer ? dealer.name : "")) + '</title></circle>';
+  }
+  s += '</svg>';
+  box.innerHTML = s;
+  document.getElementById("legBudget").innerHTML = wish.budget != null ? '<i style="background:transparent;border:1.5px dashed var(--ink)"></i>Your budget ' + esc(usd(wish.budget * 100)) : "";
+}
+function featTags(c, everyListed) {
+  const wanted = new Set(FEATS.filter(f => wish.feats[f.k]).map(f => f.k));
+  return FEATS.filter(f => c.feats[f.k] === "yes" || (wanted.has(f.k) && (everyListed || true))).filter(f => c.feats[f.k] === "yes" || wanted.has(f.k)).map(f =>
+    c.feats[f.k] === "yes"
+      ? '<span class="feat yes">✓ ' + esc(f.short) + '</span>'
+      : '<span class="feat unk" title="The dealer\'s page doesn\'t mention it. Ask the dealer.">? ' + esc(f.short) + '</span>').join("");
+}
+function card(x, i, group) {
+  const c = x.c, j = x.j, d = dealerById[c.dealer] || { name: "Dealer", city: "" };
+  const priceHtml = c.price != null
+    ? '<div class="price num">' + esc(usd(c.price)) + '</div><div class="vsmsrp">' + (c.msrp ? esc(vsMsrp(c.price, c.msrp)) : "cash price") + '</div>'
+    : '<div class="price none">' + esc(c.noPriceWhy) + '</div><div class="vsmsrp">' + (c.msrp ? "MSRP " + esc(usd(c.msrp)) + " · ask the dealer" : "ask the dealer") + '</div>';
+  const badge = group === "range" ? ""
+    : group === "match"
+    ? '<span class="badge good">' + (j.total ? "Meets " + j.met + " of " + j.total + " wishes" : "Fits") + '</span>'
+    : '<span class="badge maybe">Not listed: ' + esc(j.mustMissing.join(", ")) + '</span>';
+  const dist = j.dist != null ? ' <span class="dist">· ' + Math.round(j.dist) + ' mi</span>' : "";
+  const inCmp = compare.includes(c.vin);
+  const link = c.url ? '<a href="' + esc(c.url) + '" target="_blank" rel="noopener">View at dealer ↗</a>' : '<span class="note">No dealer page listed</span>';
+  const line = group === "range" ? '<div class="wishline">' + esc(wishLine(j)) + '</div>' : "";
+  return '<article class="car ' + (group === "match" && i === 0 && wish.sort === "match" ? "best" : "") + '">' +
+    '<div class="car-top"><div>' + priceHtml + '</div>' + badge + '</div>' + line +
+    '<div class="where"><b>' + esc(d.name) + '</b> · ' + esc(d.city) + dist + '</div>' +
+    '<div class="colors"><span><i class="sw" style="background:' + (SW[c.ext] || "var(--sunk)") + '"></i>' + esc(c.ext) + '</span><span><i class="sw" style="background:' + (SW[c.int] || "var(--sunk)") + '"></i>' + esc(c.int + (c.intMat ? " " + c.intMat : "") + " interior") + '</span></div>' +
+    '<div class="feats">' + (featTags(c) || '<span class="note">No packages listed by the dealer</span>') + '</div>' +
+    '<div class="car-foot"><span class="seen">' + (c.inTransit ? "On the way to the dealer" : "On the lot") + ' · first seen ' + esc(fmtDay(c.firstSeen)) + '</span>' +
+    '<span style="display:flex;gap:12px;align-items:center"><label class="cmp"><input type="checkbox" data-cmp="' + esc(c.vin) + '" ' + (inCmp ? "checked" : "") + ' ' + (!inCmp && compare.length >= 3 ? "disabled" : "") + '> Compare</label>' + link + '</span></div></article>';
+}
+function vsMsrp(p, m) {
+  const d = Math.round((p - m) / 100);
+  if (Math.abs(d) < 1) return "At MSRP " + usd(m);
+  return d < 0 ? usd(-d * 100) + " below MSRP " + usd(m) : usd(d * 100) + " above MSRP " + usd(m);
+}
+function renderResults(match, maybe, out) {
+  const sec = (key, title, list, help) => {
+    if (!list.length) return "";
+    const shown = list.slice(0, showAll[key]);
+    return '<div class="section-title">' + title + ' <span class="count" data-group="' + key + '">' + list.length + '</span></div>' +
+      (help ? '<p class="note">' + help + '</p>' : "") +
+      '<div class="cards">' + shown.map((x, i) => card(x, i, key)).join("") + '</div>' +
+      (list.length > shown.length ? '<button class="more" type="button" data-more="' + key + '">Show all ' + list.length + '</button>' : "");
+  };
+  let html = sec("match", "Fit your wish list", match, "");
+  html += sec("maybe", "Might fit: the dealer doesn't list a must-have", maybe, "These cars may still have the package. Dealer pages often leave it out, so ask the dealer before ruling them out.");
+  if (!match.length && !maybe.length) html = '<div class="empty">No cars fit right now. Try a higher budget, a wider distance, or turn a must-have into a nice-to-have.</div>';
+  if (out.length) {
+    const why = {};
+    for (const x of out) for (const r of x.j.out) why[r] = (why[r] || 0) + 1;
+    html += '<p class="note" id="hiddenLine">' + out.length + ' cars hidden by your limits: ' + Object.entries(why).map(([r, n]) => n + " " + r).join(", ") + '.</p>';
+  }
+  document.getElementById("results").innerHTML = html;
+}
+function renderTrend(t) {
+  document.getElementById("trendSub").textContent = t.both
+    ? "Same cars priced on more than one day."
+    : "We need at least two days of checks to show price changes.";
+  const body = document.getElementById("trendBody");
+  if (!t.changed) {
+    body.innerHTML = '<div class="empty">None of those ' + t.both + ' cars changed price. A clearer trend appears after about a week of daily checks.</div>';
+    return;
+  }
+  body.innerHTML = '<div class="cards">' + t.changes.map(ch => '<article class="car"><div class="price num">' + esc(usd(ch.to)) + '</div><div class="' + (ch.to < ch.from ? "yes" : "unk") + '">' +
+    (ch.to < ch.from ? "▼" : "▲") + " " + esc(usd(Math.abs(ch.to - ch.from))) + " since " + esc(fmtDay(ch.d0)) + '</div><div class="where">' +
+    esc((dealerById[ch.c.dealer] || {}).name || "") + " · " + esc(ch.c.ext) + '</div></article>').join("") + '</div>';
+}
+function renderDealers() {
+  const ok = D.dealers.filter(d => d.status === "checked").sort((a, b) => b.cars - a.cars);
+  const no = D.dealers.filter(d => d.status !== "checked");
+  document.getElementById("dealerSum").textContent = ok.length + " of " + D.dealers.length + " Texas dealers checked";
+  document.getElementById("dealers").innerHTML =
+    '<ul>' + ok.map(d => '<li><span><i class="dot" style="background:var(--good)"></i>' + esc(d.name) + ', ' + esc(d.city) + '</span><span class="num">' + d.cars + (d.cars === 1 ? " car" : " cars") + '</span></li>').join("") + '</ul>' +
+    '<ul>' + no.map(d => '<li><span><i class="dot" style="background:var(--warn)"></i>' + esc(d.name) + ', ' + esc(d.city) + '</span><span class="note">' + esc(d.reason || "Not checked") + '</span></li>').join("") + '</ul>';
+}
+function renderTray() {
+  const tray = document.getElementById("tray");
+  tray.hidden = compare.length === 0;
+  if (!compare.length) return;
+  const cars = compare.map(v => D.cars.find(c => c.vin === v)).filter(Boolean);
+  document.getElementById("trayTitle").textContent = "Comparing " + cars.length + (cars.length === 1 ? " car" : " cars") + (cars.length < 3 ? " · add up to 3" : "");
+  const row = (label, f) => '<tr><th>' + label + '</th>' + cars.map(c => '<td>' + f(c) + '</td>').join("") + '</tr>';
+  document.getElementById("trayTable").innerHTML = '<table>' +
+    row("Price", c => c.price != null ? '<b class="num">' + esc(usd(c.price)) + '</b>' : '<span class="unk">' + esc(c.noPriceWhy) + '</span>') +
+    row("MSRP", c => c.msrp ? esc(usd(c.msrp)) : "") +
+    row("Dealer", c => esc((dealerById[c.dealer] || {}).name || "") + ", " + esc((dealerById[c.dealer] || {}).city || "")) +
+    row("Exterior", c => esc(c.ext)) +
+    row("Interior", c => esc(c.int + (c.intMat ? " " + c.intMat : ""))) +
+    FEATS.map(f => row(f.label, c => c.feats[f.k] === "yes" ? '<span class="yes">✓ Listed</span>' : '<span class="unk">Not listed</span>')).join("") +
+    row("Availability", c => c.inTransit ? "On the way" : "On the lot") +
+    row("VIN", c => '<span class="num">' + esc(c.vin) + '</span>') +
+    '</table>';
+}
+function chips(el, key) {
+  const counts = {};
+  for (const c of D.cars) counts[c[key]] = (counts[c[key]] || 0) + 1;
+  el.innerHTML = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).map(v =>
+    '<button type="button" class="chip" data-chip="' + key + '" data-v="' + esc(v) + '" aria-pressed="' + wish[key].includes(v) + '"><i class="sw" style="background:' + (SW[v] || "var(--sunk)") + '"></i>' + esc(v) + ' <span class="ct">' + counts[v] + '</span></button>').join("");
+}
+function buildControls() {
+  document.getElementById("asof").textContent = D.asOf ? new Date(D.asOf + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "not yet";
+  const b = document.getElementById("budget");
+  b.value = wish.budget ?? b.max;
+  const near = document.getElementById("near");
+  near.innerHTML = '<option value="any">Anywhere in Texas</option>' + Object.keys(CITY).sort().map(c => '<option value="' + esc(c) + '">Near ' + esc(c) + '</option>').join("");
+  near.value = CITY[wish.near] ? wish.near : "any";
+  if (near.value === "any") wish.near = "any";
+  document.getElementById("radius").innerHTML = [50, 100, 200, null].map(r =>
+    '<button type="button" class="chip" data-radius="' + (r ?? "any") + '" aria-pressed="' + (wish.radius === r) + '" ' + (wish.near === "any" ? "disabled" : "") + '>' + (r ? "Within " + r + " mi" : "Any distance") + '</button>').join("");
+  document.getElementById("pkgs").innerHTML = FEATS.map(f => {
+    const n = D.cars.filter(c => c.feats[f.k] === "yes").length;
+    return '<span class="name">' + esc(f.label) + ' <span class="note">(' + n + ')</span></span><span class="seg" role="group" aria-label="' + esc(f.label) + '">' +
+      [["must", "Must"], ["nice", "Nice"], ["", "Skip"]].map(([v, l]) => '<button type="button" data-feat="' + f.k + '" data-v="' + v + '" aria-pressed="' + ((wish.feats[f.k] || "") === v) + '">' + l + '</button>').join("") + '</span>';
+  }).join("");
+  chips(document.getElementById("extChips"), "ext");
+  chips(document.getElementById("intChips"), "int");
+  document.getElementById("colorsOnly").checked = wish.colorsOnly;
+  document.getElementById("transit").checked = wish.transit;
+  document.getElementById("sort").value = wish.sort;
+  budgetLabel();
+}
+function budgetLabel() {
+  document.getElementById("budgetOut").textContent = wish.budget == null ? "No limit" : "Up to " + usd(wish.budget * 100);
+}
+function update() { save(); buildControls(); render(); }
+function showView(name) {
+  const cars = name !== "check";
+  document.getElementById("carsView").hidden = !cars;
+  document.getElementById("checkView").hidden = cars;
+  document.getElementById("viewCars").setAttribute("aria-pressed", cars ? "true" : "false");
+  document.getElementById("viewCheck").setAttribute("aria-pressed", cars ? "false" : "true");
+  const next = cars ? "/" : "/?view=check";
+  if (location.pathname === "/" && location.pathname + location.search !== next) history.replaceState(null, "", next);
+}
+document.addEventListener("click", e => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.view) { showView(t.dataset.view); return; }
+  if (t.dataset.chip) { const k = t.dataset.chip, v = t.dataset.v; wish[k] = wish[k].includes(v) ? wish[k].filter(x => x !== v) : [...wish[k], v]; update(); }
+  else if (t.dataset.radius) { wish.radius = t.dataset.radius === "any" ? null : +t.dataset.radius; update(); }
+  else if (t.dataset.feat) { const v = t.dataset.v; if (v) wish.feats[t.dataset.feat] = v; else delete wish.feats[t.dataset.feat]; update(); }
+  else if (t.dataset.more) { showAll[t.dataset.more] = 1e9; render(); }
+  else if (t.id === "reset") { wish = structuredClone(DEFAULT_WISH); compare = []; update(); }
+  else if (t.id === "trayClear") { compare = []; render(); }
+  else if (t.id === "trayToggle") { const tb = document.getElementById("trayTable"); tb.hidden = !tb.hidden; t.textContent = tb.hidden ? "Show" : "Hide"; }
+});
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (t.dataset.cmp) { const v = t.dataset.cmp; compare = t.checked ? [...compare, v].slice(0, 3) : compare.filter(x => x !== v); render(); }
+  else if (t.id === "near") { wish.near = t.value; if (t.value === "any") wish.radius = null; else if (wish.radius == null) wish.radius = 200; update(); }
+  else if (t.id === "colorsOnly") { wish.colorsOnly = t.checked; update(); }
+  else if (t.id === "transit") { wish.transit = t.checked; update(); }
+  else if (t.id === "sort") { wish.sort = t.value; save(); render(); }
+});
+document.getElementById("budget").addEventListener("input", e => {
+  const v = +e.target.value; wish.budget = v >= +e.target.max ? null : v; budgetLabel(); save(); render();
+});
+function paintTheme() {
+  const root = document.documentElement;
+  const dark = root.getAttribute("data-theme") === "dark" || (!root.hasAttribute("data-theme") && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const btn = document.getElementById("themeBtn");
+  btn.textContent = dark ? "☀ Light" : "☾ Dark";
+  btn.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
+}
+document.getElementById("themeBtn").addEventListener("click", () => {
+  const root = document.documentElement;
+  const dark = root.getAttribute("data-theme") === "dark" || (!root.hasAttribute("data-theme") && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  root.setAttribute("data-theme", dark ? "light" : "dark");
+  try { localStorage.setItem("x5finder.theme", root.getAttribute("data-theme")); } catch (e) {}
+  paintTheme();
+  render();
+});
+document.getElementById("themeSystem").addEventListener("click", () => {
+  document.documentElement.removeAttribute("data-theme");
+  try { localStorage.removeItem("x5finder.theme"); } catch (e) {}
+  paintTheme();
+  render();
+});
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (!document.documentElement.hasAttribute("data-theme")) { paintTheme(); render(); }
+});
+buildControls();
+renderDealers();
+render();
+showView(new URLSearchParams(location.search).get("view") === "check" ? "check" : "cars");
+paintTheme();
+</script>
+</body>
+</html>

@@ -5,6 +5,7 @@ rules, retries only on 429/503/timeout with Retry-After and 30s/90s backoff (req
 from __future__ import annotations
 
 import asyncio
+import ssl
 import time
 from dataclasses import dataclass
 
@@ -97,6 +98,11 @@ class HttpFetcher:
                     url, current, None, None, _ms(start), 1, ReasonCode.TIMEOUT, str(e)
                 )
             except httpx.HTTPError as e:
+                # A dead host (refused connection, bad certificate) is not a timeout and is
+                # not retried. Timeouts stay retryable (review G1).
+                if isinstance(e, httpx.ConnectError) or _is_tls(e):
+                    code = ReasonCode.TLS_FAILED if _is_tls(e) else ReasonCode.CONNECT_FAILED
+                    return HttpResult(url, current, None, None, _ms(start), 1, code, str(e))
                 return HttpResult(
                     url, current, None, None, _ms(start), 1, ReasonCode.TIMEOUT, f"transport: {e}"
                 )
@@ -147,3 +153,17 @@ class HttpFetcher:
 
 def _ms(start: float) -> int:
     return int((time.monotonic() - start) * 1000)
+
+
+def _is_tls(exc: BaseException) -> bool:
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, ssl.SSLError):
+            return True
+        text = str(cur).lower()
+        if "certificate" in text or "tls" in text or "ssl" in text:
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False

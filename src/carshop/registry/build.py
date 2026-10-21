@@ -193,6 +193,7 @@ def compose(
             res_no_source[dealer_id] = reason
         if prev is None:
             res_added.append(dealer_id)
+        streak = _fail_streak(reason, prev, fresh=disc is not None and disc.start_url is None)
         rows.append(
             {
                 "dealer_id": dealer_id,
@@ -212,6 +213,7 @@ def compose(
                 "discovery_reason": reason,
                 "discovered_at": discovered_at,
                 "source": "override" if o and (o.start_url or o.hostname) else "locator",
+                "discovery_fail_streak": streak,
             }
         )
 
@@ -247,6 +249,28 @@ def compose(
     result = BuildResult(registry=_registry_from_doc(doc), path=Path(), added=res_added,
                          deactivated=deactivated, no_source=res_no_source)  # fmt: skip
     return doc, result
+
+
+_HOMEPAGE_FAILS = frozenset(
+    {
+        DiscoveryReason.HOMEPAGE_CONNECT_FAILED.value,
+        DiscoveryReason.HOMEPAGE_TLS_FAILED.value,
+        DiscoveryReason.HOMEPAGE_TIMEOUT.value,
+        DiscoveryReason.HOMEPAGE_UNREACHABLE.value,
+    }
+)
+
+
+def _fail_streak(reason: str, prev: Dealer | None, *, fresh: bool) -> int:
+    """Consecutive refreshes whose homepage could not be reached. A carried-forward row does
+    not increment: only a discovery that failed again this refresh does."""
+    if reason not in _HOMEPAGE_FAILS:
+        return 0
+    if not fresh:
+        return prev.discovery_fail_streak if prev is not None else 0
+    if prev is not None and prev.discovery_reason in _HOMEPAGE_FAILS:
+        return prev.discovery_fail_streak + 1
+    return 1
 
 
 def _registry_from_doc(doc: dict[str, Any]) -> Registry:
@@ -324,6 +348,7 @@ async def refresh_registry(
     if engine is not None:
         with write_tx(engine) as conn:
             repos.upsert_dealers(conn, result.registry.dealers, operator_id=operator_id)
+            repos.retire_centerless_dealers(conn)
             gone = repos.deactivate_dealers_not_in(
                 conn, (d.dealer_id for d in result.registry.dealers), operator_id=operator_id
             )

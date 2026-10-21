@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from carshop.domain.codes import LifecycleState, PriceEvent
+from carshop.domain.codes import DealerStatus, LifecycleState, PriceEvent
 from carshop.domain.pricing import price_event
 
 
@@ -35,13 +35,21 @@ class Delta:
 
 
 def compute_delta(
-    today: Snapshot, baseline: Snapshot | None, *, missing_unverified: set[str] | None = None
+    today: Snapshot,
+    baseline: Snapshot | None,
+    *,
+    missing_unverified: set[str] | None = None,
+    held: set[str] | None = None,
+    status: DealerStatus = DealerStatus.REPORTED,
 ) -> Delta:
     """Compare a REPORTED run with the dealer's last REPORTED run.
 
-    The caller MUST only invoke this when today's dealer status is REPORTED. PARTIAL and
-    NOT_REPORTED never emit missing events (enforced in the pipeline, asserted here).
+    PARTIAL and NOT_REPORTED raise: they must not emit missing events. `held` VINs are
+    present (so they are not missing) but are not validated, so they produce no price event.
     """
+    if status is not DealerStatus.REPORTED:
+        raise ValueError(f"deltas require a REPORTED dealer, not {status.value}")
+    present = set(today.prices) | (held or set())
     if baseline is None:
         return Delta(baseline_run_id=None, added=sorted(today.prices))
     delta = Delta(baseline_run_id=baseline.run_id)
@@ -65,7 +73,7 @@ def compute_delta(
                     )
                 )
     for vin in sorted(baseline.prices):
-        if vin not in today.prices:
+        if vin not in present:
             delta.missing.append(vin)
     return delta
 

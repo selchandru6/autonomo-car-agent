@@ -52,6 +52,98 @@ registry_app = typer.Typer(
 )
 app.add_typer(registry_app, name="registry")
 
+review_app = typer.Typer(
+    help="Review queue. The web screen is read-only (F22).", no_args_is_help=True
+)
+app.add_typer(review_app, name="review")
+
+
+def _operator(explicit: str | None) -> str:
+    import getpass
+
+    if explicit:
+        return explicit
+    st = get_settings()
+    return st.operator_id or getpass.getuser()
+
+
+@review_app.command("list")
+def review_list() -> None:
+    """Open review items."""
+    _, eng = _engine()
+    with read_conn(eng) as conn:
+        items = repos.open_review_items(conn)
+    if not items:
+        rprint("No open review items.")
+        return
+    table = Table("id", "dealer", "vin", "issue")
+    for item in items:
+        table.add_row(
+            str(item["item_id"]), str(item["dealer_id"]), str(item["vin"] or ""), str(item["issue"])
+        )
+    console.print(table)
+
+
+@review_app.command("approve")
+def review_approve(
+    item_id: int,
+    reason: str = typer.Option("", "--reason"),
+    operator: str | None = typer.Option(None, "--operator"),
+) -> None:
+    from carshop.review.decisions import approve
+    from carshop.storage.db import write_tx
+
+    _, eng = _engine()
+    with write_tx(eng) as conn:
+        approve(conn, item_id, operator_id=_operator(operator), reason=reason)
+    rprint(f"[green]validated[/green] item {item_id}")
+
+
+@review_app.command("reject")
+def review_reject(
+    item_id: int,
+    reason: str = typer.Option("", "--reason"),
+    operator: str | None = typer.Option(None, "--operator"),
+) -> None:
+    from carshop.review.decisions import reject
+    from carshop.storage.db import write_tx
+
+    _, eng = _engine()
+    with write_tx(eng) as conn:
+        reject(conn, item_id, operator_id=_operator(operator), reason=reason)
+    rprint(f"[yellow]rejected[/yellow] item {item_id}")
+
+
+@review_app.command("correct")
+def review_correct(
+    run_id: str,
+    dealer_id: str,
+    vin: str,
+    field: str,
+    value: str,
+    reason: str = typer.Option(..., "--reason"),
+    evidence: str | None = typer.Option(None, "--evidence"),
+    operator: str | None = typer.Option(None, "--operator"),
+) -> None:
+    """Store a human correction as a new observation version. Version 1 is not edited."""
+    from carshop.review.decisions import correct
+    from carshop.storage.db import write_tx
+
+    _, eng = _engine()
+    with write_tx(eng) as conn:
+        new_id = correct(
+            conn,
+            run_id=run_id,
+            dealer_id=dealer_id,
+            vin=vin,
+            field=field,
+            new_value=value,
+            operator_id=_operator(operator),
+            reason=reason,
+            evidence=evidence,
+        )
+    rprint(f"[green]correction stored[/green] observation {new_id}")
+
 
 @registry_app.command("refresh")
 def registry_refresh(
@@ -117,7 +209,9 @@ def _print_registry(reg: object) -> None:
 
 @app.command()
 def run(
-    trigger: str = typer.Option("manual_date", help="cron | manual_date | manual_dealer | catchup"),
+    trigger: str = typer.Option(
+        "manual_date", help="cron | manual_date | manual_dealer | catchup | replay"
+    ),
     dealer: list[str] = typer.Option(None, "--dealer", help="Restrict to dealer id(s)"),
     date: str | None = typer.Option(None, help="Snapshot date YYYY-MM-DD (America/Chicago)"),
     notify: bool = typer.Option(False, help="Send/write the digest after publishing"),
@@ -143,6 +237,10 @@ def run(
             use_browser=not no_browser,
         )
     except RunRejected as e:
+        # A 07:00 catch-up that finds the 06:00 run already published is a no-op, not a failure.
+        if trig is Trigger.CATCHUP and "already exists" in str(e):
+            rprint(f"[yellow]catch-up skipped:[/yellow] {e}")
+            raise typer.Exit(0) from e
         rprint(f"[red]rejected:[/red] {e}")
         raise typer.Exit(2) from e
     t = Table(
@@ -244,6 +342,30 @@ def prune() -> None:
             "backups_removed": prune_backups(st.backups_dir),
         }
     )
+
+
+@app.command("import-workbooks")
+def import_workbooks_cmd(
+    paths: list[Path] = typer.Argument(..., help="October X5 workbooks (.xlsx)"),
+) -> None:
+    """Load every VIN from the workbooks. One row per VIN; a later sheet replaces the dealer."""
+    from carshop.catalog.workbook import import_workbooks
+    from carshop.util import iso, utcnow
+
+    _, eng = _engine()
+    if not migrate.is_current(eng):
+        migrate.upgrade(eng)
+    vehicles = import_workbooks(paths)
+    from carshop.storage.db import write_tx
+
+    with write_tx(eng) as c:
+        n = repos.replace_catalog(c, vehicles, iso(utcnow()))
+    moved = [v for v in vehicles if v.prior_dealer]
+    rprint(f"[green]{n} vehicles[/green], one row per VIN")
+    if moved:
+        rprint("[yellow]VIN changed dealer between snapshots (latest dealer kept):[/yellow]")
+        for v in moved:
+            rprint(f"  {v.vin}  {v.prior_dealer} -> {v.dealer_name}  as of {v.as_of}")
 
 
 @app.command()

@@ -5,6 +5,7 @@ Revises: 44a0d1b83d4c
 Create Date: 2026-10-20 00:10:00
 
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa
@@ -21,9 +22,7 @@ def upgrade() -> None:
         b.add_column(sa.Column("locator_url", sa.String(), nullable=True))
         b.add_column(sa.Column("discovery_reason", sa.String(), nullable=True))
         b.add_column(sa.Column("discovered_at", sa.String(), nullable=True))
-        b.add_column(
-            sa.Column("source", sa.String(), nullable=False, server_default="locator")
-        )
+        b.add_column(sa.Column("source", sa.String(), nullable=False, server_default="locator"))
     op.create_table(
         "registry_snapshots",
         sa.Column("snapshot_id", sa.Integer(), autoincrement=True, nullable=False),

@@ -21,11 +21,12 @@ def evaluate(
 ) -> RobotsDecision:
     """Decide whether `url` may be fetched.
 
-    Missing (404) or unreadable robots is treated as allow-all, per RFC 9309. A 5xx or a
-    network failure is treated as allow (RFC 9309 permits either; the fetch itself will then
-    record its own outcome). An explicit Disallow matching the path fails closed.
+    A 4xx (including a missing robots.txt) is allow-all. A 5xx or a network failure is
+    complete disallow (RFC 9309 §2.3.1). An explicit Disallow matching the path fails closed.
     """
-    if robots_body is None or http_status is None or http_status >= 400:
+    if http_status is None or http_status >= 500:
+        return RobotsDecision(False, None, f"robots unreachable (status={http_status}); disallow")
+    if robots_body is None or http_status >= 400:
         return RobotsDecision(True, None, f"robots unavailable (status={http_status}); allow-all")
     rp = Protego.parse(robots_body)
     allowed = bool(rp.can_fetch(url, user_agent)) and bool(rp.can_fetch(url, "*"))

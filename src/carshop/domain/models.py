@@ -52,6 +52,7 @@ class Dealer(Frozen):
     discovery_reason: str | None = None  # DiscoveryReason value
     discovered_at: str | None = None  # ISO time of the discovery that set start_url
     source: str = "locator"  # locator | override | seed
+    discovery_fail_streak: int = 0  # consecutive refreshes whose homepage could not be reached
 
     @property
     def fetchable(self) -> bool:
@@ -142,6 +143,7 @@ class Observation(Frozen):
     image_url: str | None = None
     alternate_urls: tuple[str, ...] = ()
     sticker_url: str | None = None
+    price_basis: str = "unknown"
 
 
 class Exclusion(Frozen):
@@ -156,6 +158,7 @@ class ClassifiedListing(Frozen):
     observation: Observation | None
     exclusion: Exclusion | None
     needs_review: str | None = None
+    parse_failed: bool = False
 
 
 class FetchAttempt(Frozen):

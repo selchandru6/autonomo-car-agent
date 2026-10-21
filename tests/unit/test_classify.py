@@ -51,9 +51,8 @@ def test_used_and_pending_and_demo(ctx: ClassifyContext) -> None:
         classify(raw(availability_text="Sale Pending"), ctx).exclusion.code
         is ExclusionCode.SALE_PENDING
     )  # type: ignore[union-attr]
-    assert (
-        classify(raw(condition_text="New Demo"), ctx).exclusion.code is ExclusionCode.DEMO_MILEAGE
-    )  # type: ignore[union-attr]
+    demo = classify(raw(condition_text="New Demo", odometer_miles=120), ctx)
+    assert demo.observation is not None and demo.exclusion is None
     assert classify(raw(odometer_miles=1200), ctx).exclusion.code is ExclusionCode.DEMO_MILEAGE  # type: ignore[union-attr]
 
 
@@ -67,10 +66,9 @@ def test_model_and_year(ctx: ClassifyContext) -> None:
         classify(raw(year=2027, trim="40 xDrive", vin=make_vin(year_code="V")), ctx).exclusion.code
         is ExclusionCode.NOT_MY2026
     )  # type: ignore[union-attr]
-    # Page says 2026 but VIN says 2025: conflict, not in scope.
+    # VIN year 2025 is out of scope even when the page says 2026.
     assert (
-        classify(raw(vin=make_vin(year_code="S")), ctx).exclusion.code
-        is ExclusionCode.CLASSIFICATION_CONFLICT
+        classify(raw(vin=make_vin(year_code="S")), ctx).exclusion.code is ExclusionCode.NOT_MY2026
     )  # type: ignore[union-attr]
 
 
@@ -87,11 +85,11 @@ def test_powertrain_by_ag_code(ctx: ClassifyContext) -> None:
         classify(raw(vin=make_vin("33EU"), trim="M60i"), ctx).exclusion.code
         is ExclusionCode.POWERTRAIN_OTHER
     )  # type: ignore[union-attr]
-    # Right AG code but the page never says xDrive40i: conflict.
-    assert (
-        classify(raw(trim="", full_text="New 2026 BMW X5"), ctx).exclusion.code
-        is ExclusionCode.CLASSIFICATION_CONFLICT
-    )  # type: ignore[union-attr]
+    # Right AG code but the page never says xDrive40i: kept, flagged, not dropped.
+    conflict = classify(raw(trim="", full_text="New 2026 BMW X5"), ctx)
+    assert conflict.observation is not None
+    assert Flag.CLASSIFICATION_CONFLICT in conflict.observation.flags
+    assert conflict.needs_review == "CLASSIFICATION_CONFLICT"
 
 
 def test_in_transit_and_msrp_only(ctx: ClassifyContext) -> None:

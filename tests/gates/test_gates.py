@@ -1,3 +1,4 @@
+# ruff: noqa: N802 - finding ids in the test name are the review's required spelling.
 """Requirements §13 gate tests: whole pipeline on a temp DB with a fake HTTP layer, no browser.
 
 Each test name states the gate. These must pass before any release.
@@ -55,28 +56,29 @@ class FakeHttp:
         self, url: str, dealer: Dealer, *, allow_sticker: bool = False, sleep: bool = True
     ) -> HttpResult:
         self.calls.append(url)
-        for prefix, (status, body) in self.routes.items():
-            if url.startswith(prefix):
-                err = (
-                    None
-                    if status < 400
-                    else (
-                        ReasonCode.HTTP_403
-                        if status == 403
-                        else ReasonCode.HTTP_404
-                        if status == 404
-                        else ReasonCode.TIMEOUT
-                    )
+        matches = [(prefix, pair) for prefix, pair in self.routes.items() if url.startswith(prefix)]
+        if matches:
+            _prefix, (status, body) = max(matches, key=lambda item: len(item[0]))
+            err = (
+                None
+                if status < 400
+                else (
+                    ReasonCode.HTTP_403
+                    if status == 403
+                    else ReasonCode.HTTP_404
+                    if status == 404
+                    else ReasonCode.TIMEOUT
                 )
-                return HttpResult(
-                    url=url,
-                    final_url=url,
-                    status=status,
-                    body=body,
-                    latency_ms=1,
-                    attempts=1,
-                    error=err,
-                )
+            )
+            return HttpResult(
+                url=url,
+                final_url=url,
+                status=status,
+                body=body,
+                latency_ms=1,
+                attempts=1,
+                error=err,
+            )
         return HttpResult(
             url=url,
             final_url=url,
@@ -96,7 +98,7 @@ def dealer(
 ) -> Dealer:
     return Dealer(
         dealer_id=did,
-        center_number=None,
+        center_number=did,
         name=did.upper(),
         city="Austin",
         hostname=host,
@@ -404,6 +406,7 @@ def test_gate_crashed_run_is_reclaimed_not_a_permanent_block(env) -> None:  # ty
             model_status="down",
             started_at=iso(T2),
         )
+        repos.claim_dealer_run(c, "live-run", "di")
     with pytest.raises(runmod.RunRejected):
         go(
             env,
@@ -572,3 +575,434 @@ def test_gate_page_platform_overrides_registry_platform(env) -> None:  # type: i
         assert (
             obs["comparison_price_cents"] == 76_325_00
         )  # "Cardenas Price" is the advertised figure
+
+
+def _dc_page(vin: str, total: int) -> str:
+    return f"""<!doctype html><html><head>
+<script type="application/ld+json">
+{{"@type":"CollectionPage","description":"Browse our inventory of {total} new BMW X5 vehicles for sale.",
+ "about":{{"offers":{{"itemOffered":[{{"@type":"Car","name":"New 2026 BMW X5 xDrive40i",
+ "vehicleIdentificationNumber":"{vin}","vehicleModelDate":2026,"model":"X5",
+ "itemCondition":"https://schema.org/NewCondition","offers":{{"price":"78000"}}}}]}}}}}}
+</script></head><body><div class="inventory-results"><ul><li class="vehicle-card">
+<h2>New 2026 BMW X5 xDrive40i</h2><div>VIN: {vin}</div>
+<dl class="pricing-detail"><dt>Selling Price</dt><dd>$78,000</dd></dl>
+</li></ul></div></body></html>"""
+
+
+class _PagedHttp(FakeHttp):
+    def __init__(self, total: int, *, identical: bool) -> None:
+        super().__init__()
+        self.total = total
+        self.identical = identical
+
+    async def get(
+        self, url: str, dealer: Dealer, *, allow_sticker: bool = False, sleep: bool = True
+    ) -> HttpResult:
+        from urllib.parse import parse_qsl, urlsplit
+
+        from tests.conftest import make_vin
+
+        self.calls.append(url)
+        if url.endswith("/robots.txt"):
+            return HttpResult(url, url, 404, None, 1, 1, ReasonCode.HTTP_404)
+        start = dict(parse_qsl(urlsplit(url).query)).get("start", "0")
+        page = int(start) // 24 + 1 if start.isdigit() else 1
+        vin = make_vin(serial="100001") if self.identical else make_vin(serial=f"{page:06d}")
+        return HttpResult(url, url, 200, _dc_page(vin, self.total), 1, 1, None)
+
+
+def test_C2_page_cap_is_partial(env, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
+    http = _PagedHttp(total=31 * 24, identical=False)
+    monkeypatch.setattr(runmod, "HttpFetcher", lambda **_: http)
+    rep = go(env, registry(DC), now=T1, dealer_ids=["dc"])
+    listing = [url for url in http.calls if not url.endswith("/robots.txt")]
+    assert len(listing) == 30
+    assert rep.dealers["dc"] is DealerStatus.PARTIAL
+    assert rep.reasons["dc"] is ReasonCode.PAGINATION_INCOMPLETE
+
+
+def test_C3_identical_pages_stop_after_two_requests(env, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
+    http = _PagedHttp(total=31 * 24, identical=True)
+    monkeypatch.setattr(runmod, "HttpFetcher", lambda **_: http)
+    rep = go(env, registry(DC), now=T1, dealer_ids=["dc"])
+    listing = [url for url in http.calls if not url.endswith("/robots.txt")]
+    assert len(listing) <= 2
+    assert rep.dealers["dc"] is DealerStatus.PARTIAL
+    assert rep.reasons["dc"] is ReasonCode.PAGINATION_INCOMPLETE
+
+
+def test_H2_robots_5xx_is_not_reported(env) -> None:  # type: ignore[no-untyped-def]
+    _st, _eng, fake = env
+    fake.routes = {
+        "https://www.dc-test.com/robots.txt": (503, None),
+        "https://www.dc-test.com/new-inventory/": (200, DC_PAGE),
+    }
+    rep = go(env, registry(DC), now=T1, dealer_ids=["dc"])
+    assert rep.dealers["dc"] is DealerStatus.NOT_REPORTED
+    assert rep.reasons["dc"] is ReasonCode.ROBOTS_DISALLOWED
+
+
+def test_H2_disallowed_detail_skips_enrichment(env) -> None:  # type: ignore[no-untyped-def]
+    _st, eng, fake = env
+    fake.routes = di_routes()
+    fake.routes["https://www.di-test.com/robots.txt"] = (
+        200,
+        "User-agent: *\nDisallow: /inventory/\n",
+    )
+    rep = go(env, registry(DI), now=T1, dealer_ids=["di"])
+    assert rep.dealers["di"] is DealerStatus.REPORTED
+    assert rep.eligible["di"] > 0
+    assert not [url for url in fake.calls if "/inventory/" in url]
+    with read_conn(eng) as conn:
+        decisions = [
+            row[0]
+            for row in conn.execute(
+                select(s.fetch_attempts.c.robots_decision).where(
+                    s.fetch_attempts.c.run_id == rep.run_id
+                )
+            )
+        ]
+    assert "disallowed" in decisions
+
+
+def test_H3_store_failure_does_not_abort_the_run(env, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
+    _st, eng, fake = env
+    fake.routes = {**di_routes(), **dc_routes()}
+
+    original = repos.store_dealer_result
+
+    def boom(
+        conn: object, run_id: str, result: object, *, baseline_run_id: str | None
+    ) -> dict[str, int]:
+        from carshop.domain.models import DealerResult
+
+        assert isinstance(result, DealerResult)
+        if result.dealer_id == "dc":
+            raise RuntimeError("store failed")
+        return original(
+            conn,
+            run_id,
+            result,
+            baseline_run_id=baseline_run_id,  # type: ignore[arg-type]
+        )
+
+    monkeypatch.setattr(runmod.repos, "store_dealer_result", boom)
+    rep = go(env, registry(DI, DC), now=T1)
+    assert rep.status is RunStatus.PUBLISHED
+    assert rep.dealers["di"] is DealerStatus.REPORTED
+    assert rep.dealers["dc"] is DealerStatus.NOT_REPORTED
+    with read_conn(eng) as conn:
+        vins = {
+            row["vin"] for row in repos.observations_for_run(conn, rep.run_id, validated_only=False)
+        }
+        assert vins
+        status = conn.execute(
+            select(s.dealer_runs.c.status).where(
+                s.dealer_runs.c.run_id == rep.run_id, s.dealer_runs.c.dealer_id == "dc"
+            )
+        ).scalar()
+    assert status == DealerStatus.NOT_REPORTED.value
+
+
+def test_H4_in_flight_dealer_stays_locked(env) -> None:  # type: ignore[no-untyped-def]
+    from sqlalchemy import update
+
+    from carshop.pipeline.run import RunRejected
+    from carshop.storage.db import write_tx
+    from carshop.util import iso
+
+    _st, eng, _fake = env
+    locked_a = dealer(
+        "lock-a",
+        "www.a-test.com",
+        Platform.DEALER_COM,
+        "https://www.a-test.com/new-inventory/index.htm",
+        ("/new-inventory/",),
+    )
+    locked_b = dealer(
+        "lock-b",
+        "www.b-test.com",
+        Platform.DEALER_COM,
+        "https://www.b-test.com/new-inventory/index.htm",
+        ("/new-inventory/",),
+    )
+    other = dealer("lock-c", "www.c-test.com", Platform.UNKNOWN, None, ())
+    with write_tx(eng) as conn:
+        repos.upsert_dealers(conn, (locked_a, locked_b, other))
+        repos.create_run(
+            conn,
+            run_id="stuck-run",
+            snapshot_date="2026-10-20",
+            trigger="manual_date",
+            config_version="t",
+            model_status="down",
+            started_at=iso(T2),
+        )
+        repos.claim_dealer_run(conn, "stuck-run", "lock-a")
+        repos.claim_dealer_run(conn, "stuck-run", "lock-b")
+        conn.execute(
+            update(s.dealer_runs)
+            .where(s.dealer_runs.c.run_id == "stuck-run", s.dealer_runs.c.dealer_id == "lock-a")
+            .values(status=DealerStatus.REPORTED.value)
+        )
+    with pytest.raises(RunRejected):
+        go(env, registry(locked_a, locked_b), now=T2, dealer_ids=["lock-b"])
+    rep = go(env, registry(other), now=T2, dealer_ids=["lock-c"])
+    assert rep.status is RunStatus.PUBLISHED
+    assert rep.dealers["lock-c"] is DealerStatus.NO_SOURCE
+
+
+def test_H8_conflict_is_pending_until_approved(env) -> None:  # type: ignore[no-untyped-def]
+    from carshop.config.loaders import load_preferences
+    from carshop.review.decisions import approve
+    from carshop.storage.db import write_tx
+    from carshop.web.views import load_units
+
+    _st, eng, fake = env
+    page = DI_PAGE.replace('"year":"2026"', '"year":"2025"', 1)
+    fake.routes = di_routes(page)
+    rep = go(env, registry(DI), now=T1, dealer_ids=["di"], notify=False)
+    vin = "5UX23EU03T9529691"
+    with read_conn(eng) as conn:
+        held = {
+            row["vin"] for row in repos.observations_for_run(conn, rep.run_id, validated_only=False)
+        }
+        shown = {row["vin"] for row in repos.observations_for_run(conn, rep.run_id)}
+        item = conn.execute(
+            select(s.review_items.c.item_id).where(
+                s.review_items.c.run_id == rep.run_id, s.review_items.c.vin == vin
+            )
+        ).scalar()
+        staging = conn.execute(
+            select(s.inventory_staging.c.status).where(
+                s.inventory_staging.c.run_id == rep.run_id, s.inventory_staging.c.vin == vin
+            )
+        ).scalar()
+    assert vin in held and vin not in shown
+    assert staging == "PENDING_REVIEW"
+    assert item is not None
+    with write_tx(eng) as conn:
+        approve(conn, int(item), operator_id="owner", reason="page year confirmed against the VIN")
+        units = load_units(conn, rep.run_id, load_preferences())
+    assert vin in {unit.row["vin"] for unit in units}
+
+
+def test_M1_M3_replay_does_not_duplicate_and_correct_versions(env) -> None:  # type: ignore[no-untyped-def]
+    from datetime import UTC, datetime
+
+    from carshop.domain.classify import ClassifyContext, classify
+    from carshop.domain.models import DealerResult, FetchAttempt
+    from carshop.review.decisions import correct
+    from carshop.storage.db import write_tx
+    from tests.unit.test_classify import raw
+
+    _st, eng, _fake = env
+    ctx = ClassifyContext(
+        "di", datetime(2026, 10, 19, tzinfo=UTC), "t", 2026, "23EU", 500, 55_000_00, 120_000_00
+    )
+    obs = classify(raw(), ctx).observation
+    assert obs is not None
+    bad = classify(raw(vin="5UX23EU00T9529691"), ctx).exclusion
+    assert bad is not None
+    attempt = FetchAttempt(
+        url="https://www.di-test.com/new-vehicles/x5/",
+        final_url=None,
+        http_status=200,
+        attempt=1,
+        latency_ms=1,
+        robots_decision="allowed",
+        content_hash="abc",
+        storage_uri=None,
+        error_code=None,
+    )
+    result = DealerResult(
+        dealer_id="di",
+        status=DealerStatus.REPORTED,
+        reason=None,
+        pages_expected=1,
+        pages_read=1,
+        pages_failed=0,
+        raw_count=2,
+        eligible_count=1,
+        duration_ms=1,
+        cost_usd=0.0,
+        anomaly=False,
+        observations=(obs,),
+        exclusions=(bad,),
+        attempts=(attempt,),
+        review_reasons=((bad.vin or "", bad.code.value),),
+    )
+    with write_tx(eng) as conn:
+        repos.upsert_dealers(conn, (DI,))
+        repos.create_run(
+            conn,
+            run_id="replay-run",
+            snapshot_date="2026-10-19",
+            trigger="replay",
+            config_version="t",
+            model_status="down",
+        )
+        repos.store_dealer_result(conn, "replay-run", result, baseline_run_id=None)
+        repos.store_dealer_result(conn, "replay-run", result, baseline_run_id=None)
+        counts = {
+            name: conn.execute(text(f"SELECT COUNT(*) FROM {name}")).scalar()
+            for name in ("observations", "exclusions", "review_items", "fetch_attempts")
+        }
+        new_id = correct(
+            conn,
+            run_id="replay-run",
+            dealer_id="di",
+            vin=obs.vin,
+            field="comparison_price_cents",
+            new_value="7700000",
+            operator_id="owner",
+            reason="fee was inside the figure",
+            evidence="window sticker",
+        )
+        versions = conn.execute(
+            select(s.observations.c.version, s.observations.c.comparison_price_cents).where(
+                s.observations.c.run_id == "replay-run", s.observations.c.vin == obs.vin
+            )
+        ).all()
+        shown = repos.observations_for_run(conn, "replay-run")
+    assert counts == {"observations": 1, "exclusions": 1, "review_items": 1, "fetch_attempts": 1}
+    assert new_id
+    assert {(row[0], row[1]) for row in versions} == {(1, 78_325_00), (2, 77_000_00)}
+    assert shown[0]["comparison_price_cents"] == 77_000_00
+    assert shown[0]["extraction_method"] == "human"
+
+
+def test_M2_flags_are_not_written_onto_the_observation(env) -> None:  # type: ignore[no-untyped-def]
+    _st, eng, fake = env
+    fake.routes = di_routes(DI_PAGE)
+    rep = go(env, registry(DI), now=T1, dealer_ids=["di"], notify=False)
+    from carshop.storage.db import write_tx
+
+    vin = "5UX23EU03T9529691"
+    with read_conn(eng) as conn:
+        before = conn.execute(
+            select(s.observations.c.flags).where(
+                s.observations.c.run_id == rep.run_id, s.observations.c.vin == vin
+            )
+        ).scalar()
+    with write_tx(eng) as conn:
+        repos.add_flag_to_observations(conn, rep.run_id, vin, "TRANSFER_SUSPECTED")
+    with read_conn(eng) as conn:
+        after = conn.execute(
+            select(s.observations.c.flags).where(
+                s.observations.c.run_id == rep.run_id, s.observations.c.vin == vin
+            )
+        ).scalar()
+        visible = repos.observations_for_run(conn, rep.run_id, validated_only=False)
+    assert after == before
+    flagged = next(row for row in visible if row["vin"] == vin)
+    assert "TRANSFER_SUSPECTED" in flagged["flags"]
+
+
+def test_M4_pending_price_emits_no_price_or_missing_event(env) -> None:  # type: ignore[no-untyped-def]
+    from datetime import UTC, datetime
+
+    from carshop.domain.classify import ClassifyContext, classify
+    from carshop.domain.models import DealerResult
+    from carshop.pipeline.compare import compare_dealer
+    from carshop.storage.db import write_tx
+    from tests.unit.test_classify import raw
+
+    _st, eng, _fake = env
+    ctx = ClassifyContext(
+        "di", datetime(2026, 10, 19, tzinfo=UTC), "t", 2026, "23EU", 500, 55_000_00, 120_000_00
+    )
+    first = classify(raw(), ctx).observation
+    assert first is not None
+    second = classify(raw(price_pairs=[("Our Price", "$7,832")]), ctx)
+    assert second.observation is not None and second.needs_review == "PRICE_OUTSIDE_BAND"
+    base = DealerResult(
+        dealer_id="di",
+        status=DealerStatus.REPORTED,
+        reason=None,
+        pages_expected=1,
+        pages_read=1,
+        pages_failed=0,
+        raw_count=1,
+        eligible_count=1,
+        duration_ms=1,
+        cost_usd=0.0,
+        anomaly=False,
+        observations=(first,),
+        exclusions=(),
+        attempts=(),
+        review_reasons=(),
+    )
+    held = DealerResult(
+        dealer_id="di",
+        status=DealerStatus.REPORTED,
+        reason=None,
+        pages_expected=1,
+        pages_read=1,
+        pages_failed=0,
+        raw_count=1,
+        eligible_count=1,
+        duration_ms=1,
+        cost_usd=0.0,
+        anomaly=False,
+        observations=(second.observation,),
+        exclusions=(),
+        attempts=(),
+        review_reasons=((second.observation.vin, second.needs_review),),
+    )
+    with write_tx(eng) as conn:
+        repos.upsert_dealers(conn, (DI,))
+        repos.create_run(
+            conn,
+            run_id="price-a",
+            snapshot_date="2026-10-19",
+            trigger="manual_date",
+            config_version="t",
+            model_status="down",
+        )
+        repos.store_dealer_result(conn, "price-a", base, baseline_run_id=None)
+        repos.finish_run(conn, "price-a", RunStatus.PUBLISHED, 0)
+        compare_dealer(conn, "price-a", base, None)
+        repos.create_run(
+            conn,
+            run_id="price-b",
+            snapshot_date="2026-10-20",
+            trigger="manual_date",
+            config_version="t",
+            model_status="down",
+        )
+        summary = compare_dealer(conn, "price-b", held, "price-a")
+        prices = conn.execute(text("SELECT COUNT(*) FROM price_events")).scalar()
+        missing = conn.execute(
+            text("SELECT COUNT(*) FROM listing_lifecycle WHERE to_state = 'MISSING_UNVERIFIED'")
+        ).scalar()
+    assert summary.price_changes == 0
+    assert summary.missing == 0
+    assert prices == 0
+    assert missing == 0
+
+
+def test_M8_missing_vin_is_partial_not_checksum(env) -> None:  # type: ignore[no-untyped-def]
+    _st, eng, fake = env
+    page = DI_PAGE.replace('"vin":"5UX23EU03T9529691"', '"vin":""', 1)
+    fake.routes = di_routes(page)
+    rep = go(env, registry(DI), now=T1, dealer_ids=["di"], notify=False)
+    assert rep.dealers["di"] is DealerStatus.PARTIAL
+    assert rep.reasons["di"] is ReasonCode.PARSER_FAILED
+    with read_conn(eng) as conn:
+        reasons = [
+            row[0]
+            for row in conn.execute(
+                select(s.exclusions.c.reason_code).where(s.exclusions.c.run_id == rep.run_id)
+            )
+        ]
+    assert "VIN_CHECKSUM_FAIL" not in reasons
+
+
+def test_L2_replay_never_sends_the_digest(env, monkeypatch: pytest.MonkeyPatch) -> None:  # type: ignore[no-untyped-def]
+    sent: list[str] = []
+    monkeypatch.setattr(runmod, "deliver_digest", lambda *_a, **_k: sent.append("sent") or {})
+    rep = go(env, registry(NOSRC), now=T1, trigger=Trigger.REPLAY, notify=True)
+    assert rep.status is RunStatus.PUBLISHED
+    assert sent == []

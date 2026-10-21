@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from urllib.parse import parse_qsl, unquote, urljoin, urlsplit
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urljoin, urlsplit, urlunsplit
 
 import structlog
 from selectolax.lexbor import LexborHTMLParser
@@ -50,8 +50,12 @@ _X5_BAD_RE = re.compile(
 _USED_RE = re.compile(r"used|pre-owned|preowned|certified|cpo|service|parts|specials", re.I)
 _CLEAN_X5_PATH_RE = re.compile(r"/x5/?$", re.I)
 _CLEAN_X5_QUERY_RE = re.compile(r"^(?:[a-z_]*model(?:AndTrim)?=X5)$", re.I)
-_BENIGN_PARAMS = {"make", "compositetype", "condition", "type", "supermodel", "model", "year",
-                  "modelandtrim", "_dfr[make][0]", "_dfr[model][0]", "_dfr[type][0]", "_dfr[year][0]"}  # fmt: skip
+_BENIGN_PARAMS = {"make", "compositetype", "condition", "type", "supermodel", "model",
+                  "modelandtrim", "_dfr[make][0]", "_dfr[model][0]", "_dfr[type][0]"}  # fmt: skip
+# Year and trim filters hide in-scope cars (Lubbock year=2027, Wichita Falls sDrive40i). `cy`
+# is a year only when the value is four digits; a ZIP such as cy=77845 stays (review G4).
+_YEAR_VALUE = re.compile(r"(?:19|20)\d{2}")
+_SCOPE_KEY = re.compile(r"(?:^|\[)(?:year|trim|gvtrim)(?:\]|$)")
 _LOC_RE = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.I)
 _BLOCK_TITLE_RE = re.compile(
     r"(Access Denied|Just a moment|Attention Required|captcha|verify you are human)", re.I
@@ -110,16 +114,51 @@ def probe_dealer(hostname: str, dealer_id: str = "probe") -> Dealer:
     )  # fmt: skip
 
 
+def _scopes_inventory(query: str) -> bool:
+    """True when the query filters year or trim. Model-only filters are not scope filters."""
+    for raw_key, raw_value in parse_qsl(query, keep_blank_values=True):
+        key, value = unquote(raw_key), unquote(raw_value)
+        low = key.lower()
+        if low in {"year", "trim", "gvtrim"} or _SCOPE_KEY.search(low):
+            return True
+        if low == "cy" and _YEAR_VALUE.fullmatch(value):
+            return True
+        if low == "modelandtrim" and ":" in value:
+            return True
+    return False
+
+
+def strip_inventory_filters(url: str) -> str:
+    """Drop year and trim filters. `ModelAndTrim=X5:sDrive40i` becomes `Model=X5`."""
+    parts = urlsplit(url)
+    kept: list[tuple[str, str]] = []
+    for raw_key, raw_value in parse_qsl(parts.query, keep_blank_values=True):
+        key, value = unquote(raw_key), unquote(raw_value)
+        low = key.lower()
+        if low in {"year", "trim", "gvtrim"} or _SCOPE_KEY.search(low):
+            continue
+        if low == "cy" and _YEAR_VALUE.fullmatch(value):
+            continue
+        if low == "modelandtrim" and ":" in value:
+            kept.append(("Model", value.split(":", 1)[0]))
+            continue
+        kept.append((key, value))
+    query = urlencode(kept, quote_via=quote)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
+
+
 def x5_link_score(url: str, text: str = "") -> int | None:
     """Pure: how well a same-host link names *the* new-X5 page. None = not an X5 page.
 
-    0: clean (`/new-vehicles/x5/`, `?model=X5`); 1: X5 plus benign filters (make, year, type);
+    0: clean (`/new-vehicles/x5/`, `?model=X5`); 1: X5 plus benign filters (make, type);
     2: mentions X5 somewhere else (anchor text only, odd params). Variant / multi-model links
-    (xDrive50e, PHEV, X3+X5, a trim filter, demo/under-1000-miles) are rejected.
+    (xDrive50e, PHEV, X3+X5, a year or trim filter, demo/under-1000-miles) are rejected.
     """
     parts = urlsplit(url)
     path_q = parts.path + ("?" + unquote(parts.query) if parts.query else "")
     if not _X5_RE.search(path_q) and not _X5_RE.search(text):
+        return None
+    if _scopes_inventory(parts.query):
         return None
     if _X5_BAD_RE.search(path_q) or (not _X5_RE.search(path_q) and _X5_BAD_RE.search(text)):
         return None
@@ -156,16 +195,17 @@ def rank_homepage_links(html: str, base_url: str) -> tuple[list[tuple[int, str]]
         path_q = parts.path + ("?" + parts.query if parts.query else "")
         if not _NEW_PATH_RE.search(path_q) or _USED_RE.search(parts.path):
             continue
-        if full in seen:
+        cleaned = strip_inventory_filters(full)
+        if cleaned in seen:
             continue
-        seen.add(full)
+        seen.add(cleaned)
         text = re.sub(r"\s+", " ", a.text() or "").strip()
-        score = x5_link_score(full, text)
+        score = x5_link_score(cleaned, text)
         if score is not None:
-            filtered.append((score, full))
+            filtered.append((score, cleaned))
         elif not _X5_RE.search(unquote(path_q)) and not _X5_RE.search(text):
             # Plain "New Vehicles"/"New Inventory" landing pages: short paths rank first.
-            unfiltered.append((len(parts.path) + len(parts.query), full))
+            unfiltered.append((len(urlsplit(cleaned).path) + len(urlsplit(cleaned).query), cleaned))
     filtered.sort(key=lambda t: (t[0], len(t[1])))
     unfiltered.sort()
     return filtered, [u for _, u in unfiltered]
@@ -175,13 +215,30 @@ def sitemap_candidates(xml: str, host: str) -> tuple[list[str], list[str]]:
     """Pure: (X5 new-inventory URLs, nested sitemap URLs) from one sitemap body."""
     urls = [u for u in _LOC_RE.findall(xml) if (urlsplit(u).hostname or "").lower() == host]
     nested = [u for u in urls if u.lower().endswith(".xml")]
-    x5 = [
-        u
-        for u in urls
-        if _NEW_PATH_RE.search(urlsplit(u).path) and _X5_RE.search(u) and not _X5_BAD_RE.search(u)
-        and not _USED_RE.search(urlsplit(u).path)
-    ]  # fmt: skip
+    x5 = []
+    for u in urls:
+        cleaned = strip_inventory_filters(u)
+        path = urlsplit(cleaned).path
+        if (
+            _NEW_PATH_RE.search(path)
+            and _X5_RE.search(cleaned)
+            and not _X5_BAD_RE.search(cleaned)
+            and not _scopes_inventory(urlsplit(cleaned).query)
+            and not _USED_RE.search(path)
+        ):
+            x5.append(cleaned)
     return x5, nested
+
+
+def _homepage_reason(error: ReasonCode | None) -> DiscoveryReason:
+    """Map a homepage transport failure to the discovery reason the coverage screen shows."""
+    if error is ReasonCode.CONNECT_FAILED:
+        return DiscoveryReason.HOMEPAGE_CONNECT_FAILED
+    if error is ReasonCode.TLS_FAILED:
+        return DiscoveryReason.HOMEPAGE_TLS_FAILED
+    if error is ReasonCode.TIMEOUT:
+        return DiscoveryReason.HOMEPAGE_TIMEOUT
+    return DiscoveryReason.HOMEPAGE_UNREACHABLE
 
 
 def prefixes_for(platform: Platform, start_url: str) -> tuple[str, ...]:
@@ -253,7 +310,7 @@ class Discoverer:
             return Discovery(host, None, (), Platform.UNKNOWN, DiscoveryReason.HOMEPAGE_BLOCKED,
                              f"homepage {home.error.value}", ev, None, redirected_from)  # fmt: skip
         if home.html is None:
-            return Discovery(host, None, (), Platform.UNKNOWN, DiscoveryReason.HOMEPAGE_UNREACHABLE,
+            return Discovery(host, None, (), Platform.UNKNOWN, _homepage_reason(home.error),
                              f"homepage status={home.status} error={home.error}", ev, None, redirected_from)  # fmt: skip
         platform = detect_platform(home.html)
         base_url = f"https://{host}/"

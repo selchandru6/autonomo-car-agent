@@ -27,7 +27,7 @@ from carshop.domain.codes import (
     SourceKind,
     Tri,
 )
-from carshop.domain.features import evaluate_features, merge_feature_sets
+from carshop.domain.features import evaluate_features, merge_feature_sets, resolved_dap
 from carshop.domain.models import (
     Dealer,
     DealerResult,
@@ -44,7 +44,7 @@ from carshop.fetch.http import HttpFetcher
 from carshop.fetch.politeness import HostGate
 from carshop.observability.tracing import span
 from carshop.safety import robots as robots_mod
-from carshop.util import utcnow
+from carshop.util import sha256_text, utcnow
 
 log = structlog.get_logger(__name__)
 _VIN_RE = re.compile(r"\b5UX[A-HJ-NPR-Z0-9]{14}\b")  # BMW SAV WMI; detail-page VIN cross-check
@@ -83,6 +83,10 @@ class _Acc:
     details_failed: int = 0
     reason: ReasonCode | None = None
     robots_hash: str | None = None
+    robots_body: str | None = None
+    robots_status: int | None = None
+    truncated: bool = False
+    parse_failures: int = 0
     used_browser: bool = False
 
 
@@ -118,11 +122,10 @@ async def run_dealer(dealer: Dealer, deps: BranchDeps) -> DealerResult:
         robots_url = f"https://{dealer.hostname}/robots.txt"
         async with await deps.gate(robots_url):
             rres = await deps.http.get(robots_url, dealer, sleep=False)
+        acc.robots_body = rres.body if rres.status == 200 else None
+        acc.robots_status = rres.status
         decision = robots_mod.evaluate(
-            rres.body if rres.status == 200 else None,
-            rres.status,
-            dealer.start_url,
-            deps.settings.http_user_agent,
+            acc.robots_body, rres.status, dealer.start_url, deps.settings.http_user_agent
         )
         acc.robots_hash = decision.sha256
         acc.attempts.append(
@@ -183,13 +186,16 @@ async def run_dealer(dealer: Dealer, deps: BranchDeps) -> DealerResult:
             for raw in page.listings:
                 acc.raw_count += 1
                 cl = classify(raw, ctx)
+                if cl.parse_failed:
+                    acc.parse_failures += 1
+                    continue
                 if cl.exclusion:
                     if cl.exclusion.vin and cl.exclusion.vin in excluded_vins:
                         continue  # the same card repeated on another page: one exclusion row
                     if cl.exclusion.vin:
                         excluded_vins.add(cl.exclusion.vin)
                     acc.exclusions.append(cl.exclusion)
-                    if cl.exclusion.code.value in ("VIN_CHECKSUM_FAIL", "CLASSIFICATION_CONFLICT"):
+                    if cl.exclusion.code is ExclusionCode.VIN_CHECKSUM_FAIL:
                         acc.review.append((cl.exclusion.vin or "", cl.exclusion.code.value))
                     continue
                 assert cl.observation is not None
@@ -249,8 +255,10 @@ async def run_dealer(dealer: Dealer, deps: BranchDeps) -> DealerResult:
             return finish(DealerStatus.NOT_REPORTED, acc.reason or ReasonCode.PARSER_FAILED)
         if acc.reason is ReasonCode.TIMEOUT:
             return finish(DealerStatus.PARTIAL, ReasonCode.TIMEOUT)
-        if acc.pages_expected and acc.pages_read < acc.pages_expected:
-            return finish(DealerStatus.PARTIAL, ReasonCode.PAGINATION_INCOMPLETE)
+        if acc.truncated or (acc.pages_expected and acc.pages_read < acc.pages_expected):
+            return finish(DealerStatus.PARTIAL, acc.reason or ReasonCode.PAGINATION_INCOMPLETE)
+        if acc.parse_failures:
+            return finish(DealerStatus.PARTIAL, ReasonCode.PARSER_FAILED)
         if acc.pages_failed:
             return finish(DealerStatus.PARTIAL, acc.reason or ReasonCode.PARSER_FAILED)
         anomaly = False
@@ -272,6 +280,14 @@ def _attempt(url: str, final: str | None, status: int | None, latency: int, robo
              err: ReasonCode | None, renderer: str, attempt: int = 1) -> FetchAttempt:  # fmt: skip
     return FetchAttempt(url=url, final_url=final, http_status=status, attempt=attempt, latency_ms=latency, robots_decision=robots,
                         content_hash=chash, storage_uri=uri, error_code=err, renderer=renderer)  # fmt: skip
+
+
+def _robots_ok(acc: _Acc, url: str, user_agent: str) -> bool:
+    return robots_mod.evaluate(acc.robots_body, acc.robots_status, url, user_agent).allowed
+
+
+def _vins_of(parsed: PageParse) -> set[str]:
+    return {raw.vin for raw in parsed.listings if raw.vin}
 
 
 def _readapt(adapter: Adapter, html: str, chosen: list[Adapter]) -> Adapter:
@@ -352,12 +368,32 @@ async def _fetch_listing_pages(
         if parsed.listings or parsed.explicit_empty:
             pages.append(parsed)
             acc.pages_read = 1
-            acc.pages_expected = min(parsed.total_pages or 1, cap)
+            acc.pages_expected = parsed.total_pages or 1
+            seen_hashes = {art.sha256}
+            seen_vins = _vins_of(parsed)
             if adapter.pagination == "url":
                 n = 1
                 visited = {dealer.start_url, hres.final_url or ""}
                 nxt = parsed.next_url
                 while nxt and n < cap and nxt not in visited:  # a repeating "next" is a loop
+                    if not _robots_ok(acc, nxt, deps.settings.http_user_agent):
+                        acc.truncated = True
+                        acc.reason = ReasonCode.ROBOTS_DISALLOWED
+                        acc.attempts.append(
+                            _attempt(
+                                nxt,
+                                None,
+                                None,
+                                0,
+                                "disallowed",
+                                None,
+                                None,
+                                ReasonCode.ROBOTS_DISALLOWED,
+                                "http",
+                            )
+                        )
+                        nxt = None
+                        break
                     visited.add(nxt)
                     n += 1
                     async with await deps.gate(nxt):
@@ -381,6 +417,32 @@ async def _fetch_listing_pages(
                         acc.reason = r.error or ReasonCode.PAGINATION_INCOMPLETE
                         break
                     a2 = deps.artifacts.put(deps.run_id, dealer.dealer_id, f"p{n}", r.body)
+                    if a2.sha256 in seen_hashes:
+                        # Same bytes again. A next link we have not already followed means the
+                        # site still claims another page; a link back to a fetched page is the end.
+                        p2 = adapter.parse_listing_page(r.body, r.final_url or nxt, a2.sha256)
+                        acc.attempts.append(
+                            _attempt(
+                                nxt,
+                                r.final_url,
+                                r.status,
+                                r.latency_ms,
+                                "allowed",
+                                a2.sha256,
+                                a2.storage_uri,
+                                None,
+                                "http",
+                                r.attempts,
+                            )
+                        )
+                        if p2.next_url and p2.next_url not in visited:
+                            acc.truncated = True
+                            acc.reason = ReasonCode.PAGINATION_INCOMPLETE
+                        else:
+                            pages.append(p2)
+                            acc.pages_read += 1
+                        break
+                    seen_hashes.add(a2.sha256)
                     p2 = adapter.parse_listing_page(r.body, r.final_url or nxt, a2.sha256)
                     acc.attempts.append(
                         _attempt(
@@ -396,11 +458,20 @@ async def _fetch_listing_pages(
                             r.attempts,
                         )
                     )
+                    vins = _vins_of(p2)
+                    if vins and vins <= seen_vins:
+                        if p2.next_url or (p2.total_pages or 0) > acc.pages_read:
+                            acc.truncated = True
+                            acc.reason = ReasonCode.PAGINATION_INCOMPLETE
+                        break
+                    seen_vins.update(vins)
                     pages.append(p2)
                     acc.pages_read += 1
                     nxt = p2.next_url
                 if nxt and n >= cap:
-                    acc.pages_expected = cap
+                    acc.truncated = True
+                    acc.reason = ReasonCode.PAGINATION_INCOMPLETE
+                    acc.pages_expected = max(acc.pages_expected, acc.pages_read + 1)
                 return
             # in_page pagination cannot run over HTTP; fall through to the browser for pages 2+.
             if (parsed.total_pages or 1) <= 1:
@@ -461,21 +532,76 @@ async def _fetch_listing_pages(
         n = 1
         visited = {dealer.start_url, renders[0].final_url or ""}
         nxt = first.next_url
+        seen_hashes = {sha256_text(renders[0].html)}
+        seen_vins = _vins_of(first)
         while nxt and n < cap and nxt not in visited:  # a repeating "next" is a loop
+            if not _robots_ok(acc, nxt, deps.settings.http_user_agent):
+                acc.truncated = True
+                acc.reason = ReasonCode.ROBOTS_DISALLOWED
+                acc.attempts.append(
+                    _attempt(
+                        nxt,
+                        None,
+                        None,
+                        0,
+                        "disallowed",
+                        None,
+                        None,
+                        ReasonCode.ROBOTS_DISALLOWED,
+                        "browser",
+                    )
+                )
+                nxt = None
+                break
             visited.add(nxt)
             n += 1
             async with await deps.gate(nxt):
-                renders_all.append(
-                    await deps.browser.render(
-                        nxt, dealer, wait_selector=adapter.wait_selector, scroll=True
+                last = await deps.browser.render(
+                    nxt, dealer, wait_selector=adapter.wait_selector, scroll=True
+                )
+            if last.html and sha256_text(last.html) in seen_hashes:
+                parsed_dup = adapter.parse_listing_page(
+                    last.html, last.final_url or last.url, "pending"
+                )
+                acc.attempts.append(
+                    _attempt(
+                        nxt,
+                        last.final_url,
+                        last.status,
+                        last.latency_ms,
+                        "allowed",
+                        sha256_text(last.html),
+                        None,
+                        None,
+                        "browser",
                     )
                 )
+                if parsed_dup.next_url and parsed_dup.next_url not in visited:
+                    acc.truncated = True
+                    acc.reason = ReasonCode.PAGINATION_INCOMPLETE
+                else:
+                    renders_all.append(last)
+                break
+            renders_all.append(last)
             nxt = None
-            last = renders_all[-1]
             if last.error is None and last.html:
-                nxt = adapter.parse_listing_page(
+                seen_hashes.add(sha256_text(last.html))
+                parsed_n = adapter.parse_listing_page(
                     last.html, last.final_url or last.url, "pending"
-                ).next_url
+                )
+                nxt = parsed_n.next_url
+                vins = _vins_of(parsed_n)
+                if vins and vins <= seen_vins:
+                    if nxt or (parsed_n.total_pages or 0) > n:
+                        acc.truncated = True
+                        acc.reason = ReasonCode.PAGINATION_INCOMPLETE
+                    nxt = None
+                else:
+                    seen_vins.update(vins)
+        if nxt and n >= cap:
+            acc.truncated = True
+            acc.reason = ReasonCode.PAGINATION_INCOMPLETE
+            acc.pages_expected = max(acc.pages_expected, n)
     for i, rr in enumerate(renders_all, start=1):
         if rr.error is not None or not rr.html:
             acc.pages_failed += 1
@@ -525,8 +651,8 @@ async def _fetch_listing_pages(
         pages.append(parsed)
         acc.pages_read += 1
         if i == 1:
-            acc.pages_expected = min(parsed.total_pages or 1, cap)
-    if pages and acc.pages_read >= 1:
+            acc.pages_expected = max(acc.pages_expected, parsed.total_pages or 1)
+    if pages and acc.pages_read >= 1 and not acc.truncated:
         acc.reason = None if not acc.pages_failed else acc.reason
 
 
@@ -545,6 +671,13 @@ async def _enrich(
     if url.startswith("/"):
         url = f"https://{dealer.hostname}{url}"
     url = url.replace("http://", "https://", 1)
+    if not _robots_ok(acc, url, deps.settings.http_user_agent):
+        acc.attempts.append(
+            _attempt(
+                url, None, None, 0, "disallowed", None, None, ReasonCode.ROBOTS_DISALLOWED, "http"
+            )
+        )
+        return obs
     html: str | None = None
     renderer = "http"
     async with await deps.gate(url):
@@ -631,11 +764,13 @@ async def _merge_detail(
     # as extra components tagged with the detail label, and the listing figure stays primary.
     prices = list(obs.prices)
     adv, msrp, comparison = obs.advertised_price_cents, obs.msrp_cents, obs.comparison_price_cents
+    price_basis = obs.price_basis
     if det.price_pairs:
         dps = build_price_set(det.price_pairs)
         if adv is None and dps.advertised_price_cents is not None:
             adv = dps.advertised_price_cents
             comparison = dps.comparison_price_cents(ctx.band_min_cents, ctx.band_max_cents)
+            price_basis = dps.price_basis.value
             flags.discard(Flag.PRICE_MISSING)
             flags |= dps.flags
             prices.extend(
@@ -658,7 +793,11 @@ async def _merge_detail(
 
     text = " ".join(filter(None, [det.package_text, det.full_text]))
     detail_feats = evaluate_features(
-        text, source_kind=SourceKind.DETAIL, url=url, page_hash=page_hash
+        text,
+        source_kind=SourceKind.DETAIL,
+        url=url,
+        page_hash=page_hash,
+        dap_text=det.package_text or "",
     )
     feats = merge_feature_sets(list(obs.features), detail_feats)
     method = obs.extraction_method
@@ -670,7 +809,7 @@ async def _merge_detail(
         if llm_feats:
             feats = merge_feature_sets(feats, llm_feats)
             method = ExtractionMethod.LLM
-    dap = next(f.status for f in feats if f.feature is Feature.DAP)
+    dap = resolved_dap(feats)
     for fl in (Flag.DAP_YES, Flag.DAP_NO, Flag.DAP_UNKNOWN):
         flags.discard(fl)
     flags.add({Tri.YES: Flag.DAP_YES, Tri.NO: Flag.DAP_NO, Tri.UNKNOWN: Flag.DAP_UNKNOWN}[dap])
@@ -696,6 +835,7 @@ async def _merge_detail(
             "msrp_cents": msrp,
             "advertised_price_cents": adv,
             "comparison_price_cents": comparison,
+            "price_basis": price_basis,
             "prices": tuple(prices),
             "features": tuple(feats),
             "dap_status": dap,

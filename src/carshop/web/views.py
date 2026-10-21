@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import json
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Connection
+from sqlalchemy import Connection, select
 
 from carshop.config.loaders import Preferences
 from carshop.domain.codes import Feature, Tri
 from carshop.domain.pricing import fmt_cents
-from carshop.reference.data import BLACK_INTERIOR_CODES, GREY_EXTERIOR_CODES
+from carshop.reference.data import BLACK_INTERIOR_CODES, EXTERIOR_COLORS, GREY_EXTERIOR_CODES
 from carshop.storage import repos
+from carshop.storage import schema as s
 
 Row = dict[str, Any]
 
@@ -70,6 +74,23 @@ class Unit:
         return "not shown"
 
 
+def _index_features(rows: list[Row]) -> dict[str, Row]:
+    """A conflict keeps both stored rows, and the screen must not treat either as a match."""
+    grouped: dict[str, list[Row]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["feature"]), []).append(row)
+    out: dict[str, Row] = {}
+    for name, items in grouped.items():
+        if any(item["sufficiency"] == "CONFLICT" for item in items):
+            merged = dict(items[0])
+            merged["status"] = "UNKNOWN"
+            merged["sufficiency"] = "CONFLICT"
+            out[name] = merged
+        else:
+            out[name] = items[-1]
+    return out
+
+
 def load_units(conn: Connection, run_id: str, prefs: Preferences) -> list[Unit]:
     rows = repos.observations_for_run(conn, run_id, validated_only=True)
     ids = [int(r["observation_id"]) for r in rows]
@@ -79,7 +100,7 @@ def load_units(conn: Connection, run_id: str, prefs: Preferences) -> list[Unit]:
     for r in rows:
         u = Unit(
             row=r,
-            features={f["feature"]: f for f in feats.get(int(r["observation_id"]), [])},
+            features=_index_features(feats.get(int(r["observation_id"]), [])),
             prices=prices.get(int(r["observation_id"]), []),
         )
         score(u, prefs)
@@ -260,6 +281,38 @@ def health_grid(conn: Connection, days: int = 30) -> dict[str, Any]:
     return {"dates": dates, "grid": dict(grid)}
 
 
+_UNREACHABLE = frozenset(
+    {
+        "homepage_connect_failed",
+        "homepage_tls_failed",
+        "homepage_timeout",
+        "homepage_unreachable",
+    }
+)
+
+
+def locator_unreachable(rows: list[Row]) -> dict[str, Any] | None:
+    """Coverage banner when a locator host has failed on consecutive refreshes (review G2)."""
+    hits = [
+        r
+        for r in rows
+        if r.get("active")
+        and int(r.get("discovery_fail_streak") or 0) >= 1
+        and r.get("discovery_reason") in _UNREACHABLE
+    ]
+    if not hits:
+        return None
+    n = max(int(r["discovery_fail_streak"]) for r in hits)
+    return {
+        "n": n,
+        "names": ", ".join(str(r["name"]) for r in hits),
+        "message": (
+            f"locator website unreachable for {n} consecutive refreshes"
+            " — operator override needed (§16.3)"
+        ),
+    }
+
+
 def summarize_coverage(rows: list[Row]) -> dict[str, int]:
     """Coverage denominator = every active Texas registry dealer (v1.3 §4). NO_SOURCE dealers
     (no discoverable inventory URL) are counted in the denominator, never hidden."""
@@ -275,3 +328,337 @@ def summarize_coverage(rows: list[Row]) -> dict[str, int]:
 
 def age_label(fetched_at: str | None, tz: str) -> str:
     return _age(fetched_at, tz)
+
+
+def filter_catalog(rows: list[Row], q: dict[str, str]) -> list[Row]:
+    """Filter the one-row-per-VIN catalog. Feature values are YES, NO, or absent (not shown)."""
+
+    def want(key: str) -> str | None:
+        value = q.get(key, "").strip()
+        return value or None
+
+    out = rows
+    if dealer := want("dealer"):
+        out = [r for r in out if r["dealer_name"] == dealer]
+    if city := want("city"):
+        out = [r for r in out if (r["city"] or "") == city]
+    if trim := want("trim"):
+        out = [r for r in out if r["trim_code"] == trim]
+    if exterior := want("exterior"):
+        out = [r for r in out if (r["exterior"] or "") == exterior]
+    if interior := want("interior"):
+        out = [r for r in out if (r["interior"] or "") == interior]
+    if price := want("price"):
+        out = [r for r in out if (r["advertised_cents"] is not None) == (price == "present")]
+    for key, value in q.items():
+        if not key.startswith("f_") or not value:
+            continue
+        code = key[2:]
+        if value == "ABSENT":
+            out = [r for r in out if code not in r["features"]]
+        else:
+            out = [r for r in out if r["features"].get(code) == value]
+    out = list(out)
+    sort = want("sort") or "dealer"
+    if sort == "price":
+        out.sort(key=lambda r: (r["advertised_cents"] is None, r["advertised_cents"] or 0))
+    elif sort == "msrp":
+        out.sort(key=lambda r: (r["msrp_cents"] is None, r["msrp_cents"] or 0))
+    else:
+        out.sort(key=lambda r: (r["dealer_name"], r["trim_code"], r["vin"]))
+    return out
+
+
+def catalog_facets(rows: list[Row]) -> dict[str, list[tuple[str, str, int]]]:
+    buckets: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    fields = (
+        ("dealer", "dealer_name"),
+        ("city", "city"),
+        ("trim", "trim_code"),
+        ("exterior", "exterior"),
+        ("interior", "interior"),
+    )
+    for row in rows:
+        for facet, column in fields:
+            value = str(row[column] or "")
+            if value:
+                buckets[facet][value] += 1
+    return {
+        facet: sorted(
+            ((value, value, n) for value, n in counts.items()), key=lambda item: (-item[2], item[1])
+        )
+        for facet, counts in buckets.items()
+    }
+
+
+_BUYER_FEATURES = (
+    "DAP",
+    "M_SPORT",
+    "MASSAGE",
+    "PANORAMIC_ROOF",
+    "SKY_LOUNGE",
+    "EXECUTIVE",
+    "CLIMATE_COMFORT",
+    "AIR_SUSPENSION",
+)
+_EXT_NAMES = [
+    re.sub(r"\s+metallic$", "", name, flags=re.I) for name in EXTERIOR_COLORS.values()
+] + ["Grigio Telesto"]
+_INT_COLORS = ("ivory white", "silverstone", "cognac", "coffee", "tartufo", "black")
+# Buyer-facing tokens. The page must not contain pipeline words such as REPORTED.
+_STATUS_WORD = {
+    "REPORTED": "checked",
+    "PARTIAL": "partial",
+    "NO_SOURCE": "missing",
+    "NOT_REPORTED": "unread",
+}
+_STATUS_REASON = {
+    "partial": "Partly checked",
+    "missing": "Website not on file yet",
+    "unread": "Couldn't read the website",
+}
+
+
+def canon_exterior(raw: str | None) -> tuple[str, str]:
+    """Drop Metallic, spell Grey, and use the official color name when it is contained."""
+    if not raw:
+        return "Not shown", "Other"
+    cleaned = re.sub(r"\bmetallic\b", "", raw, flags=re.I)
+    cleaned = cleaned.replace("Gray", "Grey").replace("gray", "grey")
+    cleaned = " ".join(cleaned.split())
+    name = cleaned or "Not shown"
+    low = cleaned.lower()
+    for known in _EXT_NAMES:
+        if known.lower() in low:
+            name = known
+            break
+    family = "Other"
+    for fam in ("grey", "white", "black", "blue", "green"):
+        if fam in name.lower():
+            family = fam.capitalize()
+            break
+    return name, family
+
+
+def canon_interior(raw: str | None) -> tuple[str, str | None]:
+    if not raw:
+        return "Not shown", None
+    low = raw.lower()
+    color = next((name for name in _INT_COLORS if name in low), None)
+    material = "Merino leather" if "merino" in low else "Sensafin" if "sensafin" in low else None
+    return (color.title() if color else " ".join(raw.split()), material)
+
+
+def price_gap_reason(flags: set[str], msrp_cents: int | None) -> str:
+    if "PRICE_IS_PAYMENT" in flags:
+        return "Lease/finance payment only"
+    if "CONDITIONAL_ONLY" in flags:
+        return "Price only after conditional rebates"
+    if "CALL_FOR_PRICE" in flags:
+        return "Call for price"
+    if msrp_cents:
+        return "Only MSRP shown"
+    return "No cash price shown"
+
+
+def _cash_cents(comparison: int | None, basis: str | None) -> int | None:
+    """A cash price is the stored vehicle-only figure. Anything else is not a price."""
+    if comparison is None:
+        return None
+    if basis in (None, "", "vehicle_only"):
+        return int(comparison)
+    return None
+
+
+def _locator_coords(directory: Path) -> dict[str, tuple[float, float]]:
+    files = sorted(directory.glob("locator-*Z.json"))
+    if not files:
+        return {}
+    try:
+        payload = json.loads(files[-1].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    out: dict[str, tuple[float, float]] = {}
+    for dealer in payload.get("dealers") or []:
+        lat, lon = dealer.get("latitude"), dealer.get("longitude")
+        if lat is None or lon is None:
+            continue
+        out[str(dealer.get("center_id"))] = (float(lat), float(lon))
+    return out
+
+
+def buyer_payload(conn: Connection, registry_dir: Path) -> dict[str, Any]:
+    """The buyer page's one payload: the latest statewide run, with later re-checks
+    updating whether each dealer was read. Cars stay the statewide listings."""
+    run = repos.latest_published_run(conn)
+    if run is None:
+        return {
+            "asOf": None,
+            "days": [],
+            "dealers": [],
+            "cars": [],
+            "flow": _empty_flow(),
+        }
+    run_id = str(run["run_id"])
+    started = str(run["started_at"])
+    coords = _locator_coords(registry_dir)
+    dealer_rows = repos.list_dealers(conn)
+    status: dict[str, dict[str, Any]] = {}
+    later = conn.execute(
+        select(
+            s.dealer_runs.c.dealer_id,
+            s.dealer_runs.c.status,
+            s.dealer_runs.c.eligible_count,
+            s.dealer_runs.c.run_id,
+            s.runs.c.started_at,
+        )
+        .join(s.runs, s.runs.c.run_id == s.dealer_runs.c.run_id)
+        .where(s.runs.c.status == "PUBLISHED", s.runs.c.started_at >= started)
+        .order_by(s.runs.c.started_at)
+    )
+    for dealer_id, dealer_status, car_count, later_run_id, _when in later:
+        status[str(dealer_id)] = {
+            "status": str(dealer_status),
+            "cars": int(car_count or 0),
+            "run_id": str(later_run_id),
+        }
+    dealers: list[dict[str, Any]] = []
+    for row in dealer_rows:
+        if not row["active"]:
+            continue
+        found = status.get(str(row["dealer_id"]), {"status": "NOT_REPORTED", "cars": 0})
+        word = _STATUS_WORD.get(str(found["status"]), "unread")
+        latlon = coords.get(str(row["center_number"] or ""))
+        dealers.append(
+            {
+                "id": row["dealer_id"],
+                "name": row["name"],
+                "city": row["city"],
+                "lat": latlon[0] if latlon else None,
+                "lon": latlon[1] if latlon else None,
+                "status": word,
+                "reason": _STATUS_REASON.get(word),
+                "cars": int(found["cars"]),
+            }
+        )
+    observations = list(repos.observations_for_run(conn, run_id, validated_only=True))
+    # A later single-dealer check replaces that dealer's cars only. The rest stay
+    # on the statewide list, so one store's re-read cannot wipe the page.
+    for dealer_id, info in status.items():
+        later_run = str(info.get("run_id") or "")
+        if not later_run or later_run == run_id or info.get("status") != "REPORTED":
+            continue
+        fresh = [
+            row
+            for row in repos.observations_for_run(conn, later_run, validated_only=True)
+            if str(row["dealer_id"]) == dealer_id
+        ]
+        observations = [row for row in observations if str(row["dealer_id"]) != dealer_id]
+        observations.extend(fresh)
+    vins = [str(row["vin"]) for row in observations]
+    first_seen: dict[str, str] = {}
+    if vins:
+        for vin, seen in conn.execute(
+            select(s.units.c.vin, s.units.c.first_seen_at).where(s.units.c.vin.in_(vins))
+        ):
+            first_seen[str(vin)] = str(seen or "")[:10]
+    feat_rows = repos.features_for_observations(
+        conn, [int(row["observation_id"]) for row in observations]
+    )
+    history: dict[str, dict[str, int | None]] = defaultdict(dict)
+    if vins:
+        hist_rows = conn.execute(
+            select(
+                s.observations.c.vin,
+                s.observations.c.comparison_price_cents,
+                s.observations.c.price_basis,
+                s.runs.c.snapshot_date,
+                s.runs.c.started_at,
+            )
+            .join(s.runs, s.runs.c.run_id == s.observations.c.run_id)
+            .where(
+                s.runs.c.status == "PUBLISHED",
+                s.observations.c.rejected.is_(False),
+                s.observations.c.vin.in_(vins),
+            )
+            .order_by(s.runs.c.snapshot_date, s.runs.c.started_at)
+        )
+        for vin, cents, basis, day, _when in hist_rows:
+            history[str(vin)][str(day)] = _cash_cents(cents, basis)
+    days = [
+        str(day)
+        for (day,) in conn.execute(
+            select(s.runs.c.snapshot_date)
+            .where(s.runs.c.status == "PUBLISHED")
+            .distinct()
+            .order_by(s.runs.c.snapshot_date)
+        )
+    ]
+    cars: list[dict[str, Any]] = []
+    for row in observations:
+        flags = set(row["flags"])
+        msrp = row["msrp_cents"]
+        price = _cash_cents(row["comparison_price_cents"], row.get("price_basis"))
+        ext, family = canon_exterior(row["exterior_raw"])
+        interior, material = canon_interior(row["interior_raw"])
+        indexed = {
+            str(item["feature"]): str(item["status"])
+            for item in feat_rows.get(int(row["observation_id"]), [])
+        }
+        vin = str(row["vin"])
+        series = history.get(vin, {})
+        cars.append(
+            {
+                "vin": vin,
+                "dealer": row["dealer_id"],
+                "price": price,
+                "msrp": int(msrp) if msrp is not None else None,
+                "noPriceWhy": None if price is not None else price_gap_reason(flags, msrp),
+                "ext": ext,
+                "extFamily": family,
+                "int": interior,
+                "intMat": material,
+                "inTransit": bool(row["in_transit"]),
+                "url": row["detail_url"] or row["source_url"],
+                "firstSeen": first_seen.get(vin) or str(row["fetched_at"])[:10],
+                "feats": {
+                    name: "yes" if indexed.get(name) == "YES" else "no" for name in _BUYER_FEATURES
+                },
+                "history": [[day, series[day]] for day in sorted(series)],
+            }
+        )
+    snapshot = date.fromisoformat(str(run["snapshot_date"]))
+    lifecycle = repos.lifecycle_for_run(conn, run_id)
+    return {
+        "asOf": str(run["snapshot_date"]),
+        "days": days,
+        "dealers": dealers,
+        "cars": cars,
+        "flow": {
+            "checked": sum(1 for dealer in dealers if dealer["status"] == "checked"),
+            "dealers": len(dealers),
+            "kept": len(cars),
+            "priced": sum(1 for car in cars if car["price"] is not None),
+            "waiting": repos.pending_review_count(conn, run_id),
+            "added": sum(1 for event in lifecycle if event["reason"] == "added"),
+            "missing": sum(1 for event in lifecycle if event["to_state"] == "MISSING_UNVERIFIED"),
+            "priceChanges": len(repos.price_events_for_run(conn, run_id)),
+            "when": "6:00 AM Central",
+            "asOfLabel": f"{snapshot.strftime('%B')} {snapshot.day}, {snapshot.year}",
+        },
+    }
+
+
+def _empty_flow() -> dict[str, Any]:
+    return {
+        "checked": 0,
+        "dealers": 0,
+        "kept": 0,
+        "priced": 0,
+        "waiting": 0,
+        "added": 0,
+        "missing": 0,
+        "priceChanges": 0,
+        "when": "6:00 AM Central",
+        "asOfLabel": None,
+    }

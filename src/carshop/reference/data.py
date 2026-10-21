@@ -52,11 +52,16 @@ def _norm(s: str) -> str:
 
 
 def match_exterior(raw: str | None) -> str | None:
+    """Exact name after normalization, or a code token. Prefixes like "Black" or "M" do not match."""
     if not raw:
         return None
     n = _norm(raw)
+    token = raw.strip().upper()
+    if token in EXTERIOR_COLORS:
+        return token
     for code, name in EXTERIOR_COLORS.items():
-        if _norm(name) == n or _norm(name).startswith(n) or n.startswith(_norm(name)):
+        official = _norm(name)
+        if n == official or official in n:
             return code
     return None
 
@@ -65,11 +70,18 @@ def match_upholstery(raw: str | None) -> str | None:
     if not raw:
         return None
     n = _norm(raw)
+    token = raw.strip().upper()
+    if token in UPHOLSTERY:
+        return token
     for code, name in UPHOLSTERY.items():
-        if _norm(name) in n:
+        if _norm(name) == n or _norm(name) in n:
             return code
-    # Colour-only interior strings (Dealer.com gives "Cognac", "Black") map to the Sensafin
-    # family only when unambiguous; Merino needs the word.
-    colour_only = {"cognac": "KPRI", "coffee": "KPHF", "silverstone": "KPA9", "black": "KPSW",
-                   "ivory white": "VAEW", "tartufo": "VATQ"}  # fmt: skip
+    # Only names that are unambiguous in the ordering guide. "Black" and "Coffee" are both
+    # Sensafin and Merino, so they stay unmapped.
+    colour_only = {
+        "cognac": "KPRI",
+        "silverstone": "KPA9",
+        "ivory white": "VAEW",
+        "tartufo": "VATQ",
+    }
     return colour_only.get(n)

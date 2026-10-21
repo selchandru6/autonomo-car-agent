@@ -14,7 +14,7 @@ from carshop.domain.codes import (
     Flag,
     Tri,
 )
-from carshop.domain.features import evaluate_features
+from carshop.domain.features import evaluate_features, resolved_dap
 from carshop.domain.models import (
     ClassifiedListing,
     Exclusion,
@@ -31,6 +31,7 @@ _PENDING_RE = re.compile(r"\b(sale pending|sold|pending sale|deposit taken)\b", 
 _TRANSIT_RE = re.compile(
     r"\b(in[- ]transit|in production|arriving soon|on order|build in progress)\b", re.I
 )
+_ON_LOT_RE = re.compile(r"\b(in stock|on lot|available now|instock)\b", re.I)
 _X5M_RE = re.compile(r"\bX5\s*M\b(?!\s*Sport)|\bX5\s*M\s*Competition\b", re.I)
 _XDRIVE40I_RE = re.compile(r"xDrive\s?40i", re.I)
 
@@ -71,9 +72,9 @@ def classify(raw: RawListing, ctx: ClassifyContext) -> ClassifiedListing:
         filter(None, [raw.condition_text, str(raw.year or ""), raw.make, raw.model, raw.trim])
     )
 
-    # 1. VIN
+    # 1. VIN. A missing VIN is a parse failure, not a checksum failure.
     if not raw.vin:
-        return _excl(raw, ctx, ExclusionCode.VIN_CHECKSUM_FAIL, "VIN not present on page")
+        return ClassifiedListing(observation=None, exclusion=None, parse_failed=True)
     info = vinmod.decode(raw.vin)
     if not info.valid:
         return _excl(raw, ctx, ExclusionCode.VIN_CHECKSUM_FAIL, f"VIN: {raw.vin}")
@@ -86,27 +87,18 @@ def classify(raw: RawListing, ctx: ClassifyContext) -> ClassifiedListing:
         )
     if _PENDING_RE.search(raw.availability_text or ""):
         return _excl(raw, ctx, ExclusionCode.SALE_PENDING, raw.availability_text or "")
-    if _DEMO_RE.search(cond):
-        return _excl(raw, ctx, ExclusionCode.DEMO_MILEAGE, cond)
 
-    # 3. Model / year
-    model = (raw.model or "").strip()
-    if model and not re.fullmatch(r"X5", model, re.I):
-        if _X5M_RE.search(f"{model} {raw.trim or ''}"):
-            return _excl(raw, ctx, ExclusionCode.MODEL_X5M, header)
+    # 3. Model. "X5 xDrive40i" and "X5 PHEV" are still X5s; the AG code picks the powertrain.
+    identity = " ".join(filter(None, [raw.model, raw.trim, header]))
+    if not re.search(r"\bX5\b", identity, re.I):
         return _excl(raw, ctx, ExclusionCode.NOT_X5, header)
-    if _X5M_RE.search(raw.trim or ""):
+    if _X5M_RE.search(identity):
         return _excl(raw, ctx, ExclusionCode.MODEL_X5M, header)
-    if raw.year is not None and raw.year != ctx.model_year:
-        return _excl(raw, ctx, ExclusionCode.NOT_MY2026, header)
+
+    # VIN year decides scope. A page year that disagrees is a conflict, not NOT_MY2026.
     if info.year != ctx.model_year:
-        # VIN says a different year than the page or target: conflict, not in scope.
-        return _excl(
-            raw,
-            ctx,
-            ExclusionCode.CLASSIFICATION_CONFLICT,
-            f"VIN year {info.year} vs page {raw.year}: {header}",
-        )
+        return _excl(raw, ctx, ExclusionCode.NOT_MY2026, header)
+    year_conflict = raw.year is not None and raw.year != info.year
 
     # 4. Powertrain via AG code, corroborated by an exact listing quote
     ag = info.ag_code
@@ -116,13 +108,7 @@ def classify(raw: RawListing, ctx: ClassifyContext) -> ClassifiedListing:
     vehicle, excl = known
     if excl is not None:
         return _excl(raw, ctx, excl, f"AG {ag} = {vehicle}: {header}")
-    if not _XDRIVE40I_RE.search(f"{raw.trim or ''} {header} {text[:2000]}"):
-        return _excl(
-            raw,
-            ctx,
-            ExclusionCode.CLASSIFICATION_CONFLICT,
-            f"AG {ag} but no xDrive40i quote: {header}",
-        )
+    quote_conflict = not _XDRIVE40I_RE.search(f"{raw.trim or ''} {header} {text[:2000]}")
 
     # 5. Odometer
     if raw.odometer_miles is not None and raw.odometer_miles > ctx.odometer_max:
@@ -139,17 +125,20 @@ def classify(raw: RawListing, ctx: ClassifyContext) -> ClassifiedListing:
     in_transit = bool(_TRANSIT_RE.search(avail_src))
     if in_transit:
         flags.add(Flag.IN_TRANSIT)
-    availability = "IN_TRANSIT" if in_transit else "ON_LOT" if raw.availability_text else "UNKNOWN"
+    availability = (
+        "IN_TRANSIT" if in_transit else "ON_LOT" if _ON_LOT_RE.search(avail_src) else "UNKNOWN"
+    )
 
-    # 8. Features
+    # 8. Features. DAP is read only from the package list, not the whole page.
     feature_text = " ".join(filter(None, [raw.package_text, text]))
     features = evaluate_features(
         feature_text,
         source_kind=raw.source_kind,
         url=raw.detail_url or raw.url,
         page_hash=raw.page_hash,
+        dap_text=raw.package_text or "",
     )
-    dap = next(f.status for f in features if f.feature is Feature.DAP)
+    dap = resolved_dap(features)
     flags.add({Tri.YES: Flag.DAP_YES, Tri.NO: Flag.DAP_NO, Tri.UNKNOWN: Flag.DAP_UNKNOWN}[dap])
     m_sport = any(f.feature is Feature.M_SPORT and f.status is Tri.YES for f in features)
     if m_sport:
@@ -162,7 +151,10 @@ def classify(raw: RawListing, ctx: ClassifyContext) -> ClassifiedListing:
         flags.add(Flag.COLOR_UNMAPPED)
 
     needs_review: str | None = None
-    if Flag.PRICE_IMPLAUSIBLE in flags:
+    if year_conflict or quote_conflict:
+        flags.add(Flag.CLASSIFICATION_CONFLICT)
+        needs_review = "CLASSIFICATION_CONFLICT"
+    elif Flag.PRICE_IMPLAUSIBLE in flags:
         needs_review = "PRICE_OUTSIDE_BAND"
 
     obs = Observation(
@@ -187,6 +179,7 @@ def classify(raw: RawListing, ctx: ClassifyContext) -> ClassifiedListing:
         msrp_cents=ps.msrp_cents,
         advertised_price_cents=ps.advertised_price_cents,
         comparison_price_cents=comparison,
+        price_basis=ps.price_basis.value,
         prices=tuple(
             PriceComponentRecord(
                 kind=c.kind,

@@ -7,6 +7,7 @@ See doc/adr/0002-browser-identity.md for the user-agent decision.
 
 from __future__ import annotations
 
+import platform
 import re
 import time
 from dataclasses import dataclass
@@ -19,6 +20,19 @@ from carshop.config.settings import Settings
 from carshop.domain.codes import ReasonCode
 from carshop.domain.models import Dealer
 from carshop.safety.allowlist import check_url
+
+
+def _os_token() -> str:
+    """The OS token a browser on this machine would send. Not a hard-coded Mac."""
+    system = platform.system()
+    if system == "Darwin":
+        version = platform.mac_ver()[0].replace(".", "_") or "10_15_7"
+        return f"Macintosh; Intel Mac OS X {version}"
+    if system == "Windows":
+        return "Windows NT 10.0; Win64; x64"
+    machine = platform.machine() or "x86_64"
+    return f"X11; Linux {machine}"
+
 
 _CAPTCHA_RE = re.compile(
     r"(captcha|cf-challenge|challenge-platform|Attention Required!|Just a moment\.\.\.|verify you are human|Access Denied)",
@@ -68,22 +82,18 @@ class BrowserRenderer:
         return self
 
     def user_agent(self, browser_version: str) -> str | None:
-        """Honest browser identity (requirements v1.3 §Compliance; ADR 0002).
+        """Honest browser identity (ADR 0002).
 
-        The UA names the Chrome build that is actually running, with the "Headless" token
-        dropped, and in "identified" mode carries the fetcher's product token as well.
+        Identified mode keeps HeadlessChrome, names the real operating system, and appends
+        the product token. There is no mode that sends a desktop Chrome UA with no identity.
         """
-        mode = self._s.browser_ua_mode
-        if mode == "native":
+        if self._s.browser_ua_mode == "native":
             return None
         major = browser_version.split(".", maxsplit=1)[0]
-        base = (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-            f"(KHTML, like Gecko) Chrome/{major}.0.0.0 Safari/537.36"
+        return (
+            f"Mozilla/5.0 ({_os_token()}) AppleWebKit/537.36 (KHTML, like Gecko) "
+            f"HeadlessChrome/{major}.0.0.0 Safari/537.36 {self._s.browser_product_token}"
         )
-        if mode == "identified":
-            return f"{base} {self._s.browser_product_token}"
-        return base
 
     def identity_headers(self) -> dict[str, str]:
         """Request headers that name the fetcher and the project on every browser request."""

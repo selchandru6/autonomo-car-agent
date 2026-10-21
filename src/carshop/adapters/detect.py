@@ -48,6 +48,9 @@ def detect_platform(html: str) -> Platform:
         return Platform.DEALER_INSPIRE
     if "pricing-detail" in h or "pictures.dealer.com" in h:
         return Platform.DEALER_COM
+    # RideMotive pages mention other vendors in widgets. The page's own markup wins.
+    if "ridemotive" in h:
+        return Platform.OTHER
     if "dealeron" in h or "searchnew.aspx" in h:
         return Platform.DEALERON
     if "cdkglobal" in h or "assets.cdk" in h or "sincro" in h:

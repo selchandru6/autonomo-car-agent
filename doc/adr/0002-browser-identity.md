@@ -1,6 +1,6 @@
 # ADR 0002 — Browser identity for the render fallback
 
-Status: accepted · Date: 2026-10-19 · Amended 2026-10-20 for requirements v1.3
+Status: accepted · Date: 2026-10-19 · Amended 2026-10-20 (review H5)
 
 ## Context
 
@@ -22,20 +22,25 @@ CAPTCHA solving, proxies, TLS impersonation, and anything but GET/HEAD.
 
 ## Decision
 
-`fetch.browser.BrowserRenderer` launches the Chromium that Playwright installed and, by
-default (`browser_ua_mode="identified"`), sends:
+`fetch.browser.BrowserRenderer` launches the Chromium that Playwright installed. The default
+mode is `browser_ua_mode="identified"`:
 
-- **User-Agent**: that browser's own UA string with the `Headless` token removed, followed by
-  the fetcher's product token: `Mozilla/5.0 (…) Chrome/156.0.0.0 Safari/537.36 carshop/0.1`.
-  The Chrome version is read from the running browser, never hard-coded.
+- **User-Agent**: `Mozilla/5.0 (<real OS>) … HeadlessChrome/<major>.0.0.0 Safari/537.36 carshop/0.1`.
+  The OS token comes from `platform.system()` (and `platform.mac_ver()` on macOS). The Chrome
+  major version comes from the running browser. `HeadlessChrome` stays in the string.
 - **X-Carshop**: the full HTTP identity, `carshop/0.1 (+https://github.com/selchandru6/autonomo-car-agent)`.
 - **From**: the operator's contact address when `CARSHOP_CONTACT_EMAIL` is set (RFC 9110 §10.1.2).
 
 The HTTP client (`fetch.http`) identifies as `carshop/0.1 (+https://github.com/…)` and is what
 `robots.txt` is evaluated against (`safety.robots`, matched by product token).
 
-Two other modes exist for the owner: `chrome` (the Chrome build only, no product token — the
-pre-v1.3 behaviour) and `native` (Playwright's stock `HeadlessChrome` UA).
+`chrome` mode is removed. A UA with no product token and no `From` / `X-Carshop` headers was
+an impersonation path, which §8 and F24 forbid. The only other mode is `native`, which sends
+Playwright's own UA unchanged and is not the default.
+
+The 2026-10-19 probe found that Akamai returns 403 to a `HeadlessChrome` token. Keeping the
+token is the compliance choice in review H5. A dealer that blocks it is `NOT_REPORTED`, not
+silently fetched under a desktop Chrome identity.
 
 The renderer still:
 
@@ -48,9 +53,10 @@ The renderer still:
 ## Why this is honest and not evasion
 
 Every request names the fetcher (`carshop/0.1`) in the User-Agent and carries the project URL
-in a header. The browser part of the UA is exactly what that Chromium build sends. We do not
-impersonate a different browser, spoof TLS, rotate addresses, or defeat any challenge. If a
-dealer blocks even that, the dealer is `NOT_REPORTED` / `HTTP_403` and the owner is told.
+in a header. The UA also says `HeadlessChrome` and names the machine's real operating system.
+We do not impersonate a different browser, drop the headless token, spoof TLS, rotate
+addresses, or defeat any challenge. If a dealer blocks that, the dealer is `NOT_REPORTED` /
+`HTTP_403` and the owner is told.
 
 We chose the token-only UA form rather than the `(+url)` form because the latter is treated by
 Akamai as a generic-crawler signature and would silently turn eight dealers into gaps for a

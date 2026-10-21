@@ -63,7 +63,7 @@ def test_x5_link_scoring_rejects_variants_and_prefers_clean_pages() -> None:
     assert x5_link_score("https://h/new-vehicles/x5/") == 0
     assert x5_link_score("https://h/new-inventory/index.htm?model=X5") == 0
     assert x5_link_score("https://h/searchnew.aspx?ModelAndTrim=X5") == 0
-    assert x5_link_score("https://h/new-inventory/index.htm?year=2026&make=BMW&model=X5") == 1
+    assert x5_link_score("https://h/new-inventory/index.htm?year=2026&make=BMW&model=X5") is None
     assert x5_link_score("https://h/new-vehicles/x5-xdrive50e/") is None
     assert x5_link_score("https://h/new-vehicles/x5m/") is None
     assert x5_link_score("https://h/new-inventory/index.htm?model=X5%20PHEV&model=330e") is None
@@ -270,6 +270,22 @@ def test_generic_adapter_without_vehicles_is_layout_unknown_not_empty() -> None:
         "h",
     )
     assert empty.explicit_empty
+    # Beaumont 2026-10-21: RideMotive ships that sentence inside a translation script.
+    # It is not an empty inventory, so the browser still gets a turn.
+    catalog = GenericJsonLdAdapter().parse_listing_page(
+        '<html><body><script>{"none":"No vehicles found."}</script><div id="inventory"></div></body></html>',
+        "https://bmwofbeaumont.com/cars/new-inventory",
+        "h",
+    )
+    assert not catalog.explicit_empty and not catalog.layout_ok
+    # The rendered Beaumont page names RideMotive and also a vendor widget. Stay on the
+    # generic reader, which is what finds the schema.org vehicles.
+    assert (
+        detect_platform(
+            "<html><body><script>dealeron widget</script><footer>ridemotive</footer></body></html>"
+        )
+        is Platform.OTHER
+    )
 
 
 # ----------------------------------------------------------------------------- compose

@@ -3,6 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    try {
+      var savedTheme = localStorage.getItem("x5finder.theme");
+      if (savedTheme === "light" || savedTheme === "dark") document.documentElement.setAttribute("data-theme", savedTheme);
+    } catch (e) {}
+  </script>
   <title>{% block title %}AI car shopping{% endblock %} · X5 xDrive40i Texas monitor</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
@@ -44,7 +50,7 @@
     {% set path = request.url.path %}
     <nav class="flex-1 py-3 text-sm">
       {% for href, label, icon in [
-        ('/', 'Overview', '◎'), ('/inventory', 'Inventory', '▤'), ('/shortlist', 'Shortlist', '★'),
+        ('/', 'Home', '◎'), ('/?view=check', "Today's check", '▣'), ('/inventory', 'Eligible', '▤'), ('/catalog', 'All inventory', '☰'), ('/shortlist', 'Shortlist', '★'),
         ('/trends', 'Price & stock trends', '∿'), ('/health', 'Data health & coverage', '♥'),
         ('/review', 'Review queue', '✓'), ('/runs', 'Runs & digest', '⟳')] %}
       <a href="{{ href }}" class="flex items-center gap-3 px-5 py-2.5 text-slate-300 hover:bg-slate-800/60 {% if path == href %}nav-active{% endif %}">
@@ -65,6 +71,8 @@
       <div class="lg:hidden font-semibold">AI car shopping</div>
       <h1 class="text-lg font-semibold">{% block heading %}{% endblock %}</h1>
       <div class="ml-auto flex items-center gap-3 text-xs">
+        <button type="button" id="themeBtn" class="badge b-flag" aria-label="Switch to light mode">Theme</button>
+        <button type="button" id="themeSystem" class="badge b-flag">Use system setting</button>
         {% if run %}
         <form method="get" class="flex items-center gap-2">
           <label class="text-slate-400">Published run</label>
@@ -91,5 +99,42 @@
   </main>
 </div>
 {% block scripts %}{% endblock %}
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById("themeBtn");
+  var sys = document.getElementById("themeSystem");
+  function darkNow() {
+    return root.getAttribute("data-theme") === "dark" ||
+      (!root.hasAttribute("data-theme") && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+  function paint() {
+    var dark = darkNow();
+    if (!btn) return;
+    btn.textContent = dark ? "☀ Light" : "☾ Dark";
+    btn.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
+  }
+  if (btn) btn.addEventListener("click", function () {
+    var next = darkNow() ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("x5finder.theme", next); } catch (e) {}
+    paint();
+    window.dispatchEvent(new Event("x5finder-theme"));
+  });
+  if (sys) sys.addEventListener("click", function () {
+    root.removeAttribute("data-theme");
+    try { localStorage.removeItem("x5finder.theme"); } catch (e) {}
+    paint();
+    window.dispatchEvent(new Event("x5finder-theme"));
+  });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+    if (!root.hasAttribute("data-theme")) {
+      paint();
+      window.dispatchEvent(new Event("x5finder-theme"));
+    }
+  });
+  paint();
+})();
+</script>
 </body>
 </html>

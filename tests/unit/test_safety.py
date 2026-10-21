@@ -50,7 +50,14 @@ def test_robots_disallow_fails_closed() -> None:
 
 def test_robots_unavailable_is_allow_all() -> None:
     assert robots.evaluate(None, 404, "https://h/anything", "carshop/0.1").allowed
-    assert robots.evaluate("garbage", 503, "https://h/anything", "carshop/0.1").allowed
+    assert robots.evaluate(None, 403, "https://h/anything", "carshop/0.1").allowed
+
+
+def test_H2_robots_5xx_is_disallow() -> None:  # noqa: N802
+    denied = robots.evaluate("garbage", 503, "https://h/anything", "carshop/0.1")
+    assert not denied.allowed
+    assert "unreachable" in denied.detail
+    assert not robots.evaluate(None, None, "https://h/anything", "carshop/0.1").allowed
 
 
 def test_ssrf_blocks_literal_private_ips() -> None:

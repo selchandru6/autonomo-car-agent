@@ -13,7 +13,7 @@
 <section class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
   {% for label, value, sub, tone in [
     ('Eligible units', kpis.eligible, kpis.priced ~ ' with a cash price', 'text-sky-300'),
-    ('Dealers reported', kpis.reported ~ ' / ' ~ kpis.registry, ((100 * kpis.reported / kpis.registry) | round | int if kpis.registry else 0) ~ '% of registry · target 90% · ' ~ (kpis.registry - kpis.attempted) ~ ' no source', 'text-emerald-300' if kpis.registry and kpis.reported >= 0.9 * kpis.registry else 'text-amber-300'),
+    ('Dealers checked', coverage_summary.reported ~ ' / ' ~ coverage_summary.active, 'latest check for each dealer, including later re-reads · this run read ' ~ kpis.reported ~ ' of ' ~ kpis.registry, 'text-emerald-300' if coverage_summary.active and coverage_summary.reported * 10 >= coverage_summary.active * 9 else 'text-amber-300'),
     ('Added VINs', kpis.added, 'vs each dealer\'s last good run', 'text-sky-300'),
     ('Missing (unverified)', kpis.missing, 'not a sale', 'text-amber-300'),
     ('Price changes', kpis.price_changes, 'same VIN, same price kind', 'text-violet-300'),

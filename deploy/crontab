@@ -9,6 +9,10 @@ MAILTO=owner@example.com
 # 06:00 daily collection run. The run writes its own row before starting, so a crash is visible.
 0 6 * * *   cd /opt/carshop && uv run carshop run --trigger cron --notify >> /var/log/carshop/run.log 2>&1
 
+# 07:00 catch-up if the 06:00 run never published. If that run already exists, the CLI
+# exits 0 ("catch-up skipped") so cron does not mail.
+0 7 * * *   cd /opt/carshop && uv run carshop run --trigger catchup --notify >> /var/log/carshop/run.log 2>&1
+
 # 07:30 heartbeat, outside the crawler: no PUBLISHED run today -> non-zero exit -> cron mail.
 30 7 * * *  cd /opt/carshop && CARSHOP_DATA_DIR=/opt/carshop/data sh deploy/heartbeat/check.sh
 

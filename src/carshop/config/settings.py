@@ -8,13 +8,14 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 Env = Literal["dev", "test", "prod"]
-UaMode = Literal["identified", "chrome", "native"]
+# `chrome` is not a mode: a UA with no product token is an impersonation path (F24).
+UaMode = Literal["identified", "native"]
 
 
 class Settings(BaseSettings):
@@ -35,7 +36,9 @@ class Settings(BaseSettings):
     schedule_hour: int = 6
     digest_deadline_hour: int = 7
     digest_deadline_minute: int = 30
-    digest_recipients: list[str] = Field(default_factory=list)
+    # NoDecode: pydantic-settings JSON-decodes list fields before validators, so an
+    # empty CARSHOP_DIGEST_RECIPIENTS= in .env.example would crash Settings().
+    digest_recipients: Annotated[list[str], NoDecode] = Field(default_factory=list)
     digest_from: str = "carshop@localhost"
 
     # --- scope baselines (3, 4, 7) -----------------------------------------------
@@ -59,9 +62,8 @@ class Settings(BaseSettings):
     browser_settle_ms: int = 6000
     retry_backoff_s: tuple[int, int] = (30, 90)
     http_user_agent: str = "carshop/0.1 (+https://github.com/selchandru6/autonomo-car-agent)"
-    # Browser identity (doc/adr/0002-browser-identity.md). identified = the Chrome build it
-    # actually is plus the product token and From / X-Carshop headers (v1.3 default); chrome =
-    # the Chrome build only (owner opt-in); native = Playwright's default UA (HeadlessChrome).
+    # Browser identity (doc/adr/0002-browser-identity.md). identified = real OS, HeadlessChrome,
+    # product token, From / X-Carshop. native = Playwright's default UA.
     browser_ua_mode: UaMode = "identified"
     browser_product_token: str = "carshop/0.1"  # noqa: S105 - a UA token, not a secret
     contact_email: str | None = None  # sent as From: when set (RFC 9110 §10.1.2)
@@ -69,7 +71,10 @@ class Settings(BaseSettings):
 
     # --- registry (7.1, F1, F25) -----------------------------------------------
     locator_state: str = "TX"
-    locator_seed_zips: list[str] = Field(default_factory=lambda: ["76801", "79901", "78520"])
+    locator_seed_zips: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["76801", "79901", "78520"]
+    )
+    operator_id: str | None = None  # audit identity; default is the OS user (CLI review)
     locator_radius_miles: int = 500
     registry_refresh_days: int = 30  # monthly snapshot
     discovery_concurrency: int = 4

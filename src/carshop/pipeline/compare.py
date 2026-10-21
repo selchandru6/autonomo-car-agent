@@ -28,8 +28,12 @@ def compare_dealer(
     summary = CompareSummary()
     if result.status is not DealerStatus.REPORTED:
         return summary  # PARTIAL / NOT_REPORTED / NO_SOURCE never produce missing events
+    pending = {vin for vin, _issue in result.review_reasons if vin}
     today = Snapshot(
-        run_id=run_id, prices={o.vin: o.comparison_price_cents for o in result.observations}
+        run_id=run_id,
+        prices={
+            o.vin: o.comparison_price_cents for o in result.observations if o.vin not in pending
+        },
     )
     baseline = (
         Snapshot(
@@ -40,7 +44,9 @@ def compare_dealer(
         else None
     )
     prior_missing = repos.missing_unverified_vins(conn, result.dealer_id)
-    delta = compute_delta(today, baseline, missing_unverified=prior_missing)
+    delta = compute_delta(
+        today, baseline, missing_unverified=prior_missing, held=pending, status=result.status
+    )
 
     for vin in delta.added:
         cur = repos.current_lifecycle_state(conn, result.dealer_id, vin)

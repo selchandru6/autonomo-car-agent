@@ -6,15 +6,17 @@ All functions take a Connection so callers own transaction boundaries.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import Connection, and_, desc, func, select, text, update
+from sqlalchemy import Connection, and_, delete, desc, func, or_, select, text, update
 
 from carshop.domain.codes import (
     DealerStatus,
     LifecycleState,
+    ReasonCode,
     RunStatus,
     StagingStatus,
     Tri,
@@ -36,6 +38,8 @@ def upsert_dealers(conn: Connection, dealers: Iterable[Dealer], operator_id: str
     n = 0
     now = iso(utcnow())
     for d in dealers:
+        if d.source == "locator" and not (d.center_number or "").strip():
+            raise ValueError(f"locator dealer {d.dealer_id} has no center number")
         existing = (
             conn.execute(select(s.dealers).where(s.dealers.c.dealer_id == d.dealer_id))
             .mappings()
@@ -59,6 +63,7 @@ def upsert_dealers(conn: Connection, dealers: Iterable[Dealer], operator_id: str
             "discovery_reason": d.discovery_reason,
             "discovered_at": d.discovered_at,
             "source": d.source,
+            "discovery_fail_streak": d.discovery_fail_streak,
         }
         if existing is None:
             conn.execute(s.dealers.insert().values(verified_at=now, **values))
@@ -78,6 +83,88 @@ def upsert_dealers(conn: Connection, dealers: Iterable[Dealer], operator_id: str
                                                             new_value=str(v), operator_id=operator_id, event_at=now, reason="registry apply"))  # fmt: skip
             n += 1
     return n
+
+
+_CENTERLESS_CHILDREN = (
+    s.dealer_runs,
+    s.dealer_listings,
+    s.exclusions,
+    s.fetch_attempts,
+    s.review_items,
+    s.inventory_staging,
+    s.listing_lifecycle,
+    s.price_events,
+    s.robots_snapshots,
+)
+
+
+def retire_centerless_dealers(conn: Connection) -> list[str]:
+    """Drop locator rows that have no center number and no observations (review G3).
+
+    A row that already has observations stays, inactive, with source `seed` and a note naming
+    the center that replaced it. Locator identity is the center number (§7.1).
+    """
+    rows = (
+        conn.execute(
+            select(s.dealers).where(
+                or_(s.dealers.c.center_number.is_(None), s.dealers.c.center_number == "")
+            )
+        )
+        .mappings()
+        .all()
+    )
+    changed: list[str] = []
+    for row in rows:
+        did = str(row["dealer_id"])
+        obs = int(
+            conn.execute(
+                select(func.count())
+                .select_from(s.observations)
+                .where(s.observations.c.dealer_id == did)
+            ).scalar()
+            or 0
+        )
+        if obs:
+            center = _superseding_center(conn, str(row["city"] or ""), str(row["name"] or ""), did)
+            note = (
+                f"superseded by center {center}"
+                if center
+                else "superseded; locator rows require a center number"
+            )
+            conn.execute(
+                update(s.dealers)
+                .where(s.dealers.c.dealer_id == did)
+                .values(active=False, source="seed", notes=note)
+            )
+        else:
+            for table in _CENTERLESS_CHILDREN:
+                conn.execute(delete(table).where(table.c.dealer_id == did))
+            conn.execute(delete(s.dealers).where(s.dealers.c.dealer_id == did))
+        changed.append(did)
+    return changed
+
+
+def _brand_tokens(name: str) -> set[str]:
+    stop = {"bmw", "of", "the", "sewell", "and"}
+    return {t for t in re.findall(r"[a-z0-9]+", name.lower()) if t not in stop and len(t) > 2}
+
+
+def _superseding_center(conn: Connection, city: str, name: str, dealer_id: str) -> str | None:
+    candidates = conn.execute(
+        select(s.dealers.c.center_number, s.dealers.c.name).where(
+            s.dealers.c.center_number.is_not(None),
+            s.dealers.c.center_number != "",
+            s.dealers.c.dealer_id != dealer_id,
+            func.lower(s.dealers.c.city) == city.strip().lower(),
+        )
+    ).all()
+    if not candidates:
+        return None
+    tokens = _brand_tokens(name)
+    for center, other in candidates:
+        if tokens & _brand_tokens(str(other)):
+            return str(center)
+    return str(candidates[0][0])
 
 
 def list_dealers(conn: Connection) -> list[Row]:
@@ -187,18 +274,75 @@ def reclaim_stale_runs(conn: Connection, *, now: datetime, max_age_s: float) -> 
                 reason=f"RUNNING for more than {int(max_age_s)}s; process presumed dead", evidence=None,
             )
         )  # fmt: skip
+        conn.execute(
+            update(s.dealer_runs)
+            .where(s.dealer_runs.c.run_id == run_id, s.dealer_runs.c.status == "RUNNING")
+            .values(
+                status=DealerStatus.NOT_REPORTED.value,
+                reason_code=ReasonCode.TIMEOUT.value,
+                finished_at=iso(now),
+            )
+        )
     return stale
 
 
-def running_run_for_dealer(conn: Connection, dealer_id: str) -> str | None:
-    """F10: a dealer already in a RUNNING run is rejected."""
-    q = (
-        select(s.runs.c.run_id)
-        .select_from(
-            s.runs.join(s.dealer_runs, s.runs.c.run_id == s.dealer_runs.c.run_id, isouter=True)
+def claim_dealer_run(conn: Connection, run_id: str, dealer_id: str) -> None:
+    """Mark a dealer in progress before any page is fetched (F10)."""
+    conn.execute(
+        s.dealer_runs.insert().values(
+            run_id=run_id,
+            dealer_id=dealer_id,
+            status="RUNNING",
+            reason_code=None,
+            pages_expected=0,
+            pages_read=0,
+            pages_failed=0,
+            raw_count=0,
+            eligible_count=0,
+            duration_ms=0,
+            cost_usd=0.0,
+            baseline_run_id=None,
+            anomaly=False,
+            robots_hash=None,
+            adapter_version=None,
+            finished_at=None,
         )
+    )
+
+
+def mark_dealer_failed(conn: Connection, run_id: str, dealer_id: str, detail: str) -> None:
+    conn.execute(
+        update(s.dealer_runs)
+        .where(s.dealer_runs.c.run_id == run_id, s.dealer_runs.c.dealer_id == dealer_id)
+        .values(
+            status=DealerStatus.NOT_REPORTED.value,
+            reason_code=ReasonCode.PARSER_FAILED.value,
+            finished_at=iso(utcnow()),
+        )
+    )
+    conn.execute(
+        s.audit_events.insert().values(
+            entity="dealer_run",
+            entity_id=f"{run_id}:{dealer_id}",
+            field="status",
+            old_value="RUNNING",
+            new_value=DealerStatus.NOT_REPORTED.value,
+            operator_id="system",
+            event_at=iso(utcnow()),
+            reason=detail[:500],
+            evidence=None,
+        )
+    )
+
+
+def running_run_for_dealer(conn: Connection, dealer_id: str) -> str | None:
+    """F10: a dealer with a RUNNING dealer_runs row is rejected."""
+    q = (
+        select(s.dealer_runs.c.run_id)
+        .select_from(s.dealer_runs.join(s.runs, s.runs.c.run_id == s.dealer_runs.c.run_id))
+        .where(s.dealer_runs.c.dealer_id == dealer_id)
+        .where(s.dealer_runs.c.status == "RUNNING")
         .where(s.runs.c.status == RunStatus.RUNNING.value)
-        .where((s.dealer_runs.c.dealer_id == dealer_id) | (s.dealer_runs.c.dealer_id.is_(None)))
     )
     r = conn.execute(q).first()
     return r[0] if r else None
@@ -294,6 +438,20 @@ def missing_unverified_vins(conn: Connection, dealer_id: str) -> set[str]:
     return {r[0] for r in conn.execute(q)}
 
 
+def _review_exists(conn: Connection, run_id: str, dealer_id: str, vin: str, issue: str) -> bool:
+    return (
+        conn.execute(
+            select(s.review_items.c.item_id).where(
+                s.review_items.c.run_id == run_id,
+                s.review_items.c.dealer_id == dealer_id,
+                s.review_items.c.issue == issue,
+                func.coalesce(s.review_items.c.vin, "") == (vin or ""),
+            )
+        ).first()
+        is not None
+    )
+
+
 # ----------------------------------------------------------------------------- dealer result
 def store_dealer_result(
     conn: Connection, run_id: str, result: DealerResult, *, baseline_run_id: str | None
@@ -303,6 +461,17 @@ def store_dealer_result(
     sha = git_sha()
     inserted = 0
     for a in result.attempts:
+        already = conn.execute(
+            select(s.fetch_attempts.c.fetch_attempt_id).where(
+                s.fetch_attempts.c.run_id == run_id,
+                s.fetch_attempts.c.dealer_id == result.dealer_id,
+                s.fetch_attempts.c.url == a.url,
+                s.fetch_attempts.c.attempt == a.attempt,
+                s.fetch_attempts.c.renderer == a.renderer,
+            )
+        ).first()
+        if already:
+            continue
         conn.execute(
             s.fetch_attempts.insert().values(
                 run_id=run_id, dealer_id=result.dealer_id, url=a.url, final_url=a.final_url, method=a.method,
@@ -312,6 +481,17 @@ def store_dealer_result(
             )
         )  # fmt: skip
     for e in result.exclusions:
+        already_ex = conn.execute(
+            select(s.exclusions.c.exclusion_id).where(
+                s.exclusions.c.run_id == run_id,
+                s.exclusions.c.dealer_id == result.dealer_id,
+                s.exclusions.c.url == e.url,
+                s.exclusions.c.reason_code == e.code.value,
+                func.coalesce(s.exclusions.c.vin, "") == (e.vin or ""),
+            )
+        ).first()
+        if already_ex:
+            continue
         conn.execute(
             s.exclusions.insert().values(
                 run_id=run_id,
@@ -341,6 +521,7 @@ def store_dealer_result(
                 interior_raw=obs.interior_raw, interior_code=obs.interior_code, odometer_miles=obs.odometer_miles,
                 availability=obs.availability, in_transit=obs.in_transit, msrp_cents=obs.msrp_cents,
                 advertised_price_cents=obs.advertised_price_cents, comparison_price_cents=obs.comparison_price_cents,
+                price_basis=obs.price_basis,
                 dap_status=obs.dap_status.value, m_sport=obs.m_sport, flags=json.dumps(sorted(f.value for f in obs.flags)),
                 extraction_method=obs.extraction_method.value, adapter_version=obs.adapter_version, git_sha=sha,
                 page_hash=obs.page_hash, source_url=obs.source_url, detail_url=obs.detail_url, sticker_url=obs.sticker_url,
@@ -383,7 +564,9 @@ def store_dealer_result(
                 "reason": review_vins.get(obs.vin),
             },
         )
-        if obs.vin in review_vins:
+        if obs.vin in review_vins and not _review_exists(
+            conn, run_id, obs.dealer_id, obs.vin, review_vins[obs.vin]
+        ):
             conn.execute(
                 s.review_items.insert().values(
                     run_id=run_id,
@@ -396,7 +579,9 @@ def store_dealer_result(
             )
         inserted += 1
     for vin, issue in result.review_reasons:
-        if vin not in {o.vin for o in result.observations}:
+        if vin not in {o.vin for o in result.observations} and not _review_exists(
+            conn, run_id, result.dealer_id, vin, issue
+        ):
             conn.execute(
                 s.review_items.insert().values(
                     run_id=run_id,
@@ -586,8 +771,19 @@ def observations_for_run(
     out = list(latest.values())
     if validated_only:
         out = [r for r in out if r["staging_status"] == StagingStatus.VALIDATED.value]
+    ids = [int(r["observation_id"]) for r in out]
+    extra: dict[int, set[str]] = {}
+    if ids:
+        for oid, flag in conn.execute(
+            select(s.observation_flags.c.observation_id, s.observation_flags.c.flag).where(
+                s.observation_flags.c.observation_id.in_(ids)
+            )
+        ):
+            extra.setdefault(int(oid), set()).add(str(flag))
     for r in out:
-        r["flags"] = json.loads(r["flags"])
+        flags = set(json.loads(r["flags"]))
+        flags.update(extra.get(int(r["observation_id"]), set()))
+        r["flags"] = sorted(flags)
     return out
 
 
@@ -746,20 +942,95 @@ def dedup_cross_dealer(conn: Connection, run_id: str) -> dict[str, list[str]]:
 
 
 def add_flag_to_observations(conn: Connection, run_id: str, vin: str, flag: str) -> None:
+    """Record a flag beside the observation. The observation row itself stays immutable."""
     rows = conn.execute(
-        select(s.observations.c.observation_id, s.observations.c.flags).where(
+        select(s.observations.c.observation_id).where(
             s.observations.c.run_id == run_id, s.observations.c.vin == vin
         )
     ).all()
-    for oid, flags_json in rows:
-        flags = set(json.loads(flags_json))
-        if flag not in flags:
-            flags.add(flag)
-            conn.execute(
-                update(s.observations)
-                .where(s.observations.c.observation_id == oid)
-                .values(flags=json.dumps(sorted(flags)))
+    now = iso(utcnow())
+    for (oid,) in rows:
+        exists = conn.execute(
+            select(s.observation_flags.c.flag).where(
+                s.observation_flags.c.observation_id == oid, s.observation_flags.c.flag == flag
             )
+        ).first()
+        if exists:
+            continue
+        conn.execute(
+            s.observation_flags.insert().values(observation_id=oid, flag=flag, created_at=now)
+        )
+
+
+def replace_catalog(conn: Connection, vehicles: Sequence[Any], imported_at: str) -> int:
+    """Replace the workbook catalog. `vin` is the primary key, so a VIN cannot be stored twice."""
+    from carshop.catalog.workbook import CatalogVehicle
+
+    conn.execute(delete(s.catalog_features))
+    conn.execute(delete(s.catalog_vehicles))
+    rows = [v for v in vehicles if isinstance(v, CatalogVehicle)]
+    if rows:
+        conn.execute(
+            s.catalog_vehicles.insert(),
+            [
+                {
+                    "vin": v.vin,
+                    "dealer_name": v.dealer_name,
+                    "city": v.city,
+                    "phone": v.phone,
+                    "year": v.year,
+                    "model": v.model,
+                    "trim": v.trim,
+                    "trim_code": v.trim_code,
+                    "stock": v.stock,
+                    "exterior": v.exterior,
+                    "interior": v.interior,
+                    "mileage": v.mileage,
+                    "msrp_cents": v.msrp_cents,
+                    "advertised_cents": v.advertised_cents,
+                    "listing_url": v.listing_url,
+                    "as_of": v.as_of,
+                    "prior_dealer": v.prior_dealer,
+                    "packages_text": v.packages_text,
+                    "imported_at": imported_at,
+                }
+                for v in rows
+            ],
+        )
+        feat_rows = [
+            {"vin": v.vin, "feature": code, "status": status, "quote": None}
+            for v in rows
+            for code, status in sorted(v.features.items())
+        ]
+        if feat_rows:
+            conn.execute(s.catalog_features.insert(), feat_rows)
+    return len(rows)
+
+
+def catalog_vehicles(conn: Connection) -> list[Row]:
+    rows = _rows(
+        conn.execute(
+            select(s.catalog_vehicles).order_by(
+                s.catalog_vehicles.c.dealer_name, s.catalog_vehicles.c.vin
+            )
+        )
+    )
+    feats: dict[str, dict[str, str]] = {}
+    for vin, feature, status in conn.execute(
+        select(s.catalog_features.c.vin, s.catalog_features.c.feature, s.catalog_features.c.status)
+    ):
+        feats.setdefault(vin, {})[feature] = status
+    for row in rows:
+        row["features"] = feats.get(row["vin"], {})
+    return rows
+
+
+def catalog_transferred(conn: Connection) -> list[Row]:
+    return _rows(
+        conn.execute(
+            select(s.catalog_vehicles).where(s.catalog_vehicles.c.prior_dealer.is_not(None))
+        )
+    )
 
 
 def dap_status_of(row: Row) -> Tri:

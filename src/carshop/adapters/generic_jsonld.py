@@ -57,6 +57,17 @@ def _walk(obj: Any, out: list[dict[str, Any]], depth: int = 0) -> None:
             _walk(v, out, depth + 1)
 
 
+def _visible_text(html: str) -> str:
+    """Page text a person would read. Script catalogs ship phrases like "No vehicles found."
+    that are not the inventory result."""
+    t = tree(html)
+    if t.body is None:
+        return ""
+    for node in t.css("script, style, noscript"):
+        node.decompose()
+    return clean(t.body.text(separator=" ", strip=True))
+
+
 def vehicles_in(html: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for block in jsonld_blocks(html):
@@ -112,8 +123,7 @@ class GenericJsonLdAdapter:
     def parse_listing_page(self, html: str, url: str, page_hash: str) -> PageParse:
         out = PageParse()
         vehicles = vehicles_in(html)
-        t = tree(html)
-        body_text = clean(t.body.text() if t.body else "")
+        body_text = _visible_text(html)
         if not vehicles:
             if _EMPTY_RE.search(body_text):
                 out.explicit_empty = True

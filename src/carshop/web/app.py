@@ -11,22 +11,23 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
-from sqlalchemy import Connection, Engine, select, update
+from sqlalchemy import Connection, Engine, select
 
 from carshop import __version__
+from carshop.catalog.features import FEATURES
 from carshop.config.loaders import load_preferences
 from carshop.config.settings import Settings, get_settings
 from carshop.domain.pricing import fmt_cents
 from carshop.export.export import export_run
 from carshop.storage import migrate, repos
 from carshop.storage import schema as s
-from carshop.storage.db import make_engine, read_conn, write_tx
-from carshop.util import git_sha, iso, utcnow
+from carshop.storage.db import make_engine, read_conn
+from carshop.util import git_sha
 from carshop.web import views
 
 _HERE = Path(__file__).parent
@@ -83,64 +84,15 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
 
     # ------------------------------------------------------------------ pages
     @app.get("/", response_class=HTMLResponse)
-    def overview(request: Request, run_id: str | None = None) -> Response:
+    def finder(request: Request) -> Response:
         with conn() as c:
-            run = _latest(c, run_id)
-            if run is None:
-                return render("empty.html", _ctx(request, c, None, state="no_runs"))
-            rid = str(run["run_id"])
-            units = views.load_units(c, rid, prefs)
-            drs = repos.dealer_runs_for_run(c, rid)
-            pe = repos.price_events_for_run(c, rid)
-            lc = repos.lifecycle_for_run(c, rid)
-            trends = views.trend_series(c, 90)
-            kpis = {
-                "eligible": len(units),
-                "priced": sum(1 for u in units if u.row["comparison_price_cents"] is not None),
-                "reported": sum(1 for d in drs if d["status"] == "REPORTED"),
-                "attempted": sum(1 for d in drs if d["status"] != "NO_SOURCE"),
-                "registry": len(drs),
-                "added": sum(1 for e in lc if e["reason"] == "added"),
-                "missing": sum(1 for e in lc if e["to_state"] == "MISSING_UNVERIFIED"),
-                "price_changes": len(pe),
-                "dap_yes": sum(1 for u in units if u.feat("DAP") == "YES"),
-                "m_sport": sum(1 for u in units if u.row["m_sport"]),
-                "in_transit": sum(1 for u in units if u.row["in_transit"]),
-            }
-            floors = []
-            for d in drs:
-                du = [u for u in units if u.row["dealer_id"] == d["dealer_id"]]
-                priced = [
-                    int(u.row["comparison_price_cents"])
-                    for u in du
-                    if u.row["comparison_price_cents"] is not None
-                ]
-                floors.append(
-                    {
-                        "dealer": d,
-                        "units": len(du),
-                        "floor": min(priced) if priced else None,
-                        "floor_vin": next(
-                            (
-                                u.vin
-                                for u in du
-                                if u.row["comparison_price_cents"]
-                                == (min(priced) if priced else None)
-                            ),
-                            None,
-                        ),
-                        "as_of": max(
-                            (str(u.row["fetched_at"]) for u in du), default=d["finished_at"]
-                        ),
-                    }
-                )
-            all_dealers_failed = kpis["attempted"] > 0 and kpis["reported"] == 0
-            return render(
-                "overview.html",
-                _ctx(request, c, run, units=units, kpis=kpis, dealer_runs=drs, price_events=pe, lifecycle=lc, floors=floors,
-                     band=views.band_series(units), trends=trends, all_failed=all_dealers_failed,
-                     top=sorted(units, key=lambda u: (-u.fit_score, -u.confidence_score))[:5]),
-            )  # fmt: skip
+            payload = views.buyer_payload(c, st.registry_dir)
+            return render("finder.html", {"request": request, "payload": payload})
+
+    @app.get("/operator")
+    def operator_home() -> RedirectResponse:
+        """Old overview address. The home screen now holds both options."""
+        return RedirectResponse(url="/?view=check", status_code=302)
 
     @app.get("/inventory", response_class=HTMLResponse)
     def inventory(request: Request, run_id: str | None = None) -> Response:
@@ -175,6 +127,34 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                     facets=views.facets(units),
                     q=q,
                     dealer_runs=drs,
+                ),
+            )
+
+    @app.get("/catalog", response_class=HTMLResponse)
+    def catalog(request: Request) -> Response:
+        with conn() as c:
+            rows = repos.catalog_vehicles(c)
+            q = dict(request.query_params)
+            filtered = views.filter_catalog(rows, q)
+            moved = [r for r in rows if r["prior_dealer"]]
+            counts: dict[str, dict[str, int]] = {f.code: {"YES": 0, "NO": 0} for f in FEATURES}
+            for row in rows:
+                for code, status in row["features"].items():
+                    if code in counts and status in counts[code]:
+                        counts[code][status] += 1
+            return render(
+                "catalog.html",
+                _ctx(
+                    request,
+                    c,
+                    None,
+                    units=filtered,
+                    total=len(rows),
+                    facets=views.catalog_facets(rows),
+                    features=FEATURES,
+                    feature_counts=counts,
+                    q=q,
+                    moved=moved,
                 ),
             )
 
@@ -314,6 +294,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                     c,
                     run,
                     coverage=cov,
+                    unreachable=views.locator_unreachable(cov),
                     locator_snapshot=repos.latest_registry_snapshot(c),
                     grid=grid,
                     attempts=attempts,
@@ -336,65 +317,12 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             return render("review.html", _ctx(request, c, run, items=items, audits=audits))
 
     @app.post("/review/{item_id}")
-    def decide(
-        item_id: int,
-        decision: str = Form(...),
-        operator_id: str = Form("operator"),
-        reason: str = Form(""),
-    ) -> Response:
-        """Operator decision. The original extraction stays; the decision is audited (F22)."""
-        if decision not in ("VALIDATED", "REJECTED"):
-            raise HTTPException(400, "decision must be VALIDATED or REJECTED")
-        now = iso(utcnow())
-        with write_tx(eng) as c:
-            item = (
-                c.execute(select(s.review_items).where(s.review_items.c.item_id == item_id))
-                .mappings()
-                .first()
-            )
-            if item is None:
-                raise HTTPException(404)
-            c.execute(
-                update(s.review_items)
-                .where(s.review_items.c.item_id == item_id)
-                .values(
-                    status="DECIDED", decision=decision, operator_id=operator_id, decided_at=now
-                )
-            )
-            if item["vin"]:
-                c.execute(
-                    update(s.inventory_staging)
-                    .where(
-                        s.inventory_staging.c.run_id == item["run_id"],
-                        s.inventory_staging.c.dealer_id == item["dealer_id"],
-                        s.inventory_staging.c.vin == item["vin"],
-                    )
-                    .values(status=decision, reason=reason or item["issue"])
-                )
-                if decision == "REJECTED":
-                    c.execute(
-                        update(s.observations)
-                        .where(
-                            s.observations.c.run_id == item["run_id"],
-                            s.observations.c.dealer_id == item["dealer_id"],
-                            s.observations.c.vin == item["vin"],
-                        )
-                        .values(rejected=True)
-                    )
-            c.execute(
-                s.audit_events.insert().values(
-                    entity="review_item",
-                    entity_id=str(item_id),
-                    field="status",
-                    old_value="OPEN",
-                    new_value=decision,
-                    operator_id=operator_id,
-                    event_at=now,
-                    reason=reason or item["issue"],
-                    evidence=None,
-                )
-            )
-        return RedirectResponse("/review", status_code=303)
+    def decide(item_id: int) -> Response:
+        """Phase 1 screen is read-only. Decisions go through `carshop review` (F22)."""
+        raise HTTPException(
+            403,
+            f"review item {item_id} is not decided here; use `carshop review approve|reject|correct`",
+        )
 
     @app.get("/runs", response_class=HTMLResponse)
     def runs(request: Request) -> Response:

@@ -1,0 +1,728 @@
+<title>Texas X5 Finder</title>
+<script>
+// Apply a saved theme before first paint (no flash).
+try { const t = localStorage.getItem("x5finder.theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+</script>
+<link rel="icon" type="image/svg+xml" href="__FAVICON__">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: brand header, wish-list rail left (stacks on phones), answers → price range → price strip → ranked cars → changes → dealers.
+   Palette: ApexMoonAI. Dark-first ("void" navy, AI cyan, moon gold); a light variant for the toggle. */
+:root {
+  --bg: #020617; --bg2: #030712; --surface: #0a0f1a; --sunk: #0f172a; --ink: #F9FAFB; --muted: #9ca3af; --faint: #6b7280;
+  --line: rgba(255,255,255,.08); --line-accent: rgba(34,211,238,.28);
+  --accent: #22D3EE; --accent-2: #0EA5E9; --accent-ink: #020617; --accent-soft: rgba(34,211,238,.14); --glow: rgba(34,211,238,.35);
+  --gold: #FBBF24; --gold-soft: rgba(251,191,36,.14);
+  --good: #34d399; --good-soft: rgba(52,211,153,.14); --warn: #FBBF24; --warn-soft: rgba(251,191,36,.13);
+  --dot: #334155; --shadow: 0 20px 60px rgba(0,0,0,.35);
+  --halo-a: rgba(34,211,238,.10); --halo-b: rgba(251,191,36,.07);
+  --display: "Syne", "Avenir Next", "Segoe UI", sans-serif;
+  --body: "DM Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1); --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --r: 12px; color-scheme: dark;
+}
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
+  --bg: #f4f7fb; --bg2: #eef3f9; --surface: #ffffff; --sunk: #eef3f9; --ink: #0b1220; --muted: #475569; --faint: #64748b;
+  --line: #dbe3ee; --line-accent: rgba(14,116,144,.35);
+  --accent: #0e7490; --accent-2: #0369a1; --accent-ink: #ffffff; --accent-soft: #e0f5f9; --glow: rgba(14,116,144,.18);
+  --gold: #b45309; --gold-soft: #fdf3dc; --good: #047857; --good-soft: #dcf5ea; --warn: #b45309; --warn-soft: #fdf3dc;
+  --dot: #c3cdd9; --shadow: 0 16px 40px rgba(15,23,42,.10); --halo-a: rgba(14,165,233,.08); --halo-b: rgba(251,191,36,.10);
+  color-scheme: light; } }
+:root[data-theme="light"] {
+  --bg: #f4f7fb; --bg2: #eef3f9; --surface: #ffffff; --sunk: #eef3f9; --ink: #0b1220; --muted: #475569; --faint: #64748b;
+  --line: #dbe3ee; --line-accent: rgba(14,116,144,.35);
+  --accent: #0e7490; --accent-2: #0369a1; --accent-ink: #ffffff; --accent-soft: #e0f5f9; --glow: rgba(14,116,144,.18);
+  --gold: #b45309; --gold-soft: #fdf3dc; --good: #047857; --good-soft: #dcf5ea; --warn: #b45309; --warn-soft: #fdf3dc;
+  --dot: #c3cdd9; --shadow: 0 16px 40px rgba(15,23,42,.10); --halo-a: rgba(14,165,233,.08); --halo-b: rgba(251,191,36,.10);
+  color-scheme: light; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body);
+  background-image: radial-gradient(circle at 0% 0%, var(--halo-a), transparent 45%), radial-gradient(circle at 100% 0%, var(--halo-b), transparent 40%);
+  background-attachment: fixed; }
+html.theming, html.theming * { transition: background-color .35s var(--ease), color .35s var(--ease), border-color .35s var(--ease), fill .35s var(--ease) !important; }
+.wrap { max-width: 1260px; margin: 0 auto; padding-inline: 16px; padding-block: 18px 56px; }
+h1, h2, h3 { font-family: var(--display); line-height: 1.12; text-wrap: balance; margin: 0; }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+a { color: var(--accent); }
+
+/* Header */
+header.top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; margin-bottom: 20px; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand img { width: 40px; height: 40px; border-radius: 10px; box-shadow: 0 0 0 1px var(--line-accent), 0 0 24px var(--glow); }
+.brand h1 { font-size: 26px; font-weight: 700; letter-spacing: 0; }
+.brand h1 span { color: var(--accent); }
+.live { display: inline-flex; align-items: center; gap: 8px; font: 500 12px/1 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.live i { width: 8px; height: 8px; border-radius: 50%; background: var(--good); box-shadow: 0 0 10px var(--good); }
+@media (prefers-reduced-motion: no-preference) { .live i { animation: pulse-dot 2s ease-in-out infinite; } }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .5; transform: scale(.8); } }
+.head-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.sample { font: 500 11px/1 var(--mono); color: var(--gold); background: var(--gold-soft); border-radius: 999px; padding: 6px 10px; text-transform: uppercase; letter-spacing: .06em; }
+.theme-btn { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); cursor: pointer; display: grid; place-items: center; position: relative; overflow: hidden; }
+.theme-btn:hover { border-color: var(--line-accent); box-shadow: 0 0 18px var(--glow); }
+.theme-btn svg { width: 20px; height: 20px; position: absolute; transition: transform .5s var(--spring), opacity .3s; }
+.theme-btn .sun { color: var(--gold); } .theme-btn .moon { color: var(--accent); }
+:root .theme-btn .moon { opacity: 0; transform: rotate(-90deg) scale(.4); }
+:root .theme-btn .sun { opacity: 1; transform: none; }
+html[data-mode="light"] .theme-btn .sun { opacity: 0; transform: rotate(90deg) scale(.4); }
+html[data-mode="light"] .theme-btn .moon { opacity: 1; transform: none; }
+.sys { font-size: 12px; background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; padding: 0; }
+
+.layout { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 920px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* Panels */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; min-width: 0; }
+.panel h2 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+.eyebrow { font: 500 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--accent); margin-bottom: 8px; display: block; }
+.sub { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+@media (prefers-reduced-motion: no-preference) {
+  .rise { animation: fadeUp .8s var(--ease) backwards; animation-delay: calc(var(--d, 0) * 90ms); }
+}
+@keyframes fadeUp { from { opacity: .35; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+
+/* Wish list rail */
+.rail { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); position: sticky; top: calc(env(safe-area-inset-top, 0px) + 12px); }
+@media (max-width: 920px) { .rail { position: static; } }
+.rail > summary { list-style: none; cursor: pointer; padding: 16px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.rail > summary::-webkit-details-marker { display: none; }
+.rail > summary h2 { font-size: 21px; font-weight: 700; }
+.saved { font: 500 11px/1 var(--mono); color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.saved b { color: var(--good); font-weight: 500; opacity: 0; transition: opacity .3s; }
+.saved.on b { opacity: 1; }
+.rail-body { padding: 0 16px 16px; display: grid; gap: 18px; }
+.group h3 { font: 500 11px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: 9px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--line); background: var(--sunk); border-radius: 999px; padding: 5px 11px; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: transform .25s var(--spring), border-color .2s, background-color .2s; }
+.chip:hover { border-color: var(--line-accent); }
+.chip:active { transform: scale(.94); }
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.chip:disabled { opacity: .45; cursor: not-allowed; }
+.sw { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(148,163,184,.55); flex: none; display: inline-block; }
+.ct { color: var(--faint); font-size: 12px; }
+.budget-out { font-family: var(--body); font-size: 24px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer; }
+input[type="checkbox"] { accent-color: var(--accent); }
+.pk { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 10px; align-items: center; }
+.pk .name { font-size: 14px; min-width: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--sunk); }
+.seg button { border: 0; background: transparent; padding: 4px 9px; font-size: 12px; cursor: pointer; transition: background-color .2s, color .2s; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.seg button[data-v="must"][aria-pressed="true"] { background: var(--gold); color: var(--accent-ink); }
+.note { font-size: 12px; color: var(--muted); margin: 0; }
+.reset { justify-self: start; background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; font-size: 13px; text-decoration: underline; }
+
+main { display: grid; gap: 20px; min-width: 0; }
+
+/* Answer strip */
+.answer { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr)); gap: 18px 24px; }
+.answer > div { min-width: 0; }
+.answer .big { font-family: var(--body); font-size: 34px; font-weight: 700; line-height: 1.05; letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.answer .lbl { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.answer .lead .big { color: var(--accent); }
+.trend-big { font-size: 28px !important; }
+
+/* Price range today */
+.range { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 640px) { .range { grid-template-columns: minmax(0, 1fr); } }
+.range > div { display: grid; gap: 8px; align-content: start; min-width: 0; }
+.range .tag { font: 500 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; padding: 6px 10px; border-radius: 999px; justify-self: start; align-self: start; width: max-content; max-width: 100%; }
+.range .low .tag { background: var(--good-soft); color: var(--good); }
+.range .high .tag { background: var(--gold-soft); color: var(--gold); }
+.spread { margin: 12px 0 0; font-size: 14px; color: var(--muted); }
+.spread b { color: var(--ink); font-family: var(--body); font-weight: 700; font-size: 16px; }
+
+/* Price strip */
+.chart { width: 100%; overflow-x: auto; }
+.chart svg { display: block; width: 100%; min-width: 560px; height: auto; }
+.chart circle { transform-box: fill-box; transform-origin: center; transition: fill .4s var(--ease); }
+@media (prefers-reduced-motion: no-preference) { .chart.first circle { animation: pop .55s var(--spring) backwards; animation-delay: calc(var(--i) * 7ms); } }
+@keyframes pop { from { transform: scale(0); } to { transform: scale(1); } }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+
+/* Cards */
+.results-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 16px; }
+.sort { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.sort select { width: auto; }
+.section-title { font: 500 12px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin: 18px 0 10px; display: flex; gap: 8px; align-items: center; }
+.section-title .count { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 8px; letter-spacing: 0; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+.car { border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 10px; background: var(--sunk); min-width: 0; transition: transform .35s var(--ease), border-color .25s, box-shadow .35s var(--ease); }
+@media (hover: hover) and (prefers-reduced-motion: no-preference) { .car:hover { transform: translateY(-4px); border-color: var(--line-accent); box-shadow: var(--shadow); } }
+.car.best { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 28px var(--glow); }
+.car-top { display: grid; gap: 8px; justify-items: start; }
+.price { font-family: var(--body); font-size: 28px; font-weight: 700; line-height: 1.05; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.price.none { font-size: 17px; color: var(--muted); font-weight: 600; line-height: 1.3; letter-spacing: 0; }
+.vsmsrp { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.badge { font-size: 12px; font-weight: 600; border-radius: 6px; padding: 3px 8px; line-height: 1.4; max-width: 100%; }
+.badge.good { background: var(--good-soft); color: var(--good); }
+.badge.maybe { background: var(--warn-soft); color: var(--warn); }
+.badge.out { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.where { font-size: 14px; }
+.where .dist { color: var(--muted); }
+.colors { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+.colors span { display: inline-flex; gap: 6px; align-items: center; }
+.feats { display: flex; flex-wrap: wrap; gap: 6px; }
+.feat { font-size: 12px; border-radius: 6px; padding: 2px 7px; border: 1px solid var(--line); }
+.feat.yes { background: var(--good-soft); border-color: transparent; color: var(--good); }
+.feat.unk { color: var(--muted); border-style: dashed; }
+.feat.want { font-weight: 600; }
+.car-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; }
+.seen { color: var(--muted); }
+.cmp { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.go { font-weight: 600; text-decoration: none; display: inline-flex; gap: 4px; align-items: center; }
+.go span { transition: transform .3s var(--spring); display: inline-block; }
+.go:hover span { transform: translate(2px, -2px); }
+.empty { border: 1px dashed var(--line); border-radius: var(--r); padding: 18px; color: var(--muted); }
+.more { background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer; margin-top: 12px; }
+.more:hover { border-color: var(--line-accent); }
+@media (prefers-reduced-motion: no-preference) { .enter { animation: fadeUp .6s var(--ease) backwards; } }
+
+.dealers { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0 24px; font-size: 14px; }
+.dealers ul { list-style: none; margin: 0; padding: 0; }
+.dealers li { display: flex; justify-content: space-between; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+details.panel > summary { cursor: pointer; list-style: none; }
+details.panel > summary::-webkit-details-marker { display: none; }
+details.panel > summary h2 { display: inline; }
+details.panel > summary::after { content: "▾"; float: right; color: var(--muted); transition: transform .3s var(--ease); }
+details.panel[open] > summary::after { transform: rotate(180deg); }
+
+/* Compare tray + toast */
+.tray { position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--line-accent); padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -10px 40px rgba(0,0,0,.25); max-height: 70vh; overflow: auto; z-index: 20; }
+@media (prefers-reduced-motion: no-preference) { .tray:not([hidden]) { animation: slideUp .45s var(--ease); } }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: none; } }
+.tray-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; max-width: 1260px; margin: 0 auto; }
+.tray-head button { border: 1px solid var(--line); background: var(--sunk); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.tray-table { max-width: 1260px; margin: 10px auto 0; overflow-x: auto; }
+.tray table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 14px; }
+.tray th, .tray td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.tray th { color: var(--muted); font-weight: 500; width: 200px; }
+.yes { color: var(--good); font-weight: 600; } .unk { color: var(--muted); }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 999px; font-size: 13px; pointer-events: none; transition: opacity .3s, transform .4s var(--spring); z-index: 30; }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+footer { margin-top: 28px; font-size: 12px; color: var(--faint); display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: space-between; }
+</style>
+
+<div class="wrap">
+  <header class="top rise">
+    <div class="brand">
+      <img src="__FAVICON__" alt="" width="40" height="40">
+      <div>
+        <h1>Texas <span>X5</span> Finder</h1>
+        <div class="live"><i></i> New 2026 X5 xDrive40i · checked <span id="asof"></span></div>
+      </div>
+    </div>
+    <div class="head-right">
+      <span class="sample">Mockup · real Oct 20 listings</span>
+      <button class="sys" id="sys" type="button" hidden>Use system setting</button>
+      <button class="theme-btn" id="theme" type="button" aria-label="Switch theme">
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
+        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <details class="rail rise" id="rail" open style="--d:1">
+      <summary><h2>My wish list</h2><span class="saved" id="saved"><b>✓ Saved</b>on this device</span></summary>
+      <div class="rail-body">
+        <div class="group">
+          <h3>Budget</h3>
+          <div class="budget-out num" id="budgetOut"></div>
+          <input type="range" id="budget" min="74000" max="94000" step="500" aria-label="Maximum price">
+          <p class="note">Cash price before tax, title and dealer fees.</p>
+        </div>
+        <div class="group">
+          <h3>Location</h3>
+          <select id="near" aria-label="I'm near"></select>
+          <div class="row" id="radius" style="margin-top:8px"></div>
+        </div>
+        <div class="group">
+          <h3>Packages</h3>
+          <div class="pk" id="pkgs"></div>
+          <p class="note" style="margin-top:9px"><b>Must</b> = only show cars where the dealer lists it. <b>Nice</b> = rank those cars higher.</p>
+        </div>
+        <div class="group">
+          <h3>Exterior colors I like</h3>
+          <div class="row" id="extChips"></div>
+        </div>
+        <div class="group">
+          <h3>Interior colors I like</h3>
+          <div class="row" id="intChips"></div>
+          <label class="check" style="margin-top:9px"><input type="checkbox" id="colorsOnly"> Only show these colors</label>
+        </div>
+        <div class="group">
+          <h3>Availability</h3>
+          <label class="check"><input type="checkbox" id="transit"> Include cars still on the way to the dealer</label>
+        </div>
+        <button class="reset" id="reset" type="button">Reset to my saved preferences</button>
+      </div>
+    </details>
+
+    <main>
+      <section class="panel rise" style="--d:2" aria-label="Summary">
+        <div class="answer">
+          <div class="lead"><div class="big num" id="aMatch"></div><div class="lbl" id="aMatchLbl"></div></div>
+          <div><div class="big num" id="aLow"></div><div class="lbl" id="aLowLbl"></div></div>
+          <div><div class="big num" id="aTypical"></div><div class="lbl" id="aTypicalLbl"></div></div>
+          <div><div class="big trend-big" id="aTrend"></div><div class="lbl" id="aTrendLbl"></div></div>
+        </div>
+      </section>
+
+      <section class="panel rise" style="--d:3" aria-labelledby="rangeTitle">
+        <span class="eyebrow">Always shown</span>
+        <h2 id="rangeTitle">Price range today</h2>
+        <p class="sub">The cheapest and the most expensive X5 xDrive40i for sale in Texas, whatever your wish list says.</p>
+        <div class="range" id="range"></div>
+        <p class="spread" id="spread"></p>
+      </section>
+
+      <section class="panel rise" style="--d:4" aria-labelledby="bandTitle">
+        <h2 id="bandTitle">Where prices sit today</h2>
+        <p class="sub">Each dot is one car for sale. Cyan dots fit your wish list.</p>
+        <div class="chart first" id="band"></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>Fits your wish list</span><span><i style="background:var(--dot)"></i>Other cars</span><span id="legBudget"></span></div>
+      </section>
+
+      <section class="panel rise" style="--d:5" aria-labelledby="resTitle">
+        <div class="results-head">
+          <h2 id="resTitle">Cars for you</h2>
+          <label class="sort" for="sort">Sort by
+            <select id="sort"><option value="match">Best match</option><option value="price">Lowest price</option><option value="near">Nearest</option></select>
+          </label>
+        </div>
+        <div id="results"></div>
+      </section>
+
+      <section class="panel rise" style="--d:6" aria-labelledby="trendTitle">
+        <h2 id="trendTitle">Price changes</h2>
+        <p class="sub" id="trendSub"></p>
+        <div id="trendBody"></div>
+      </section>
+
+      <details class="panel rise" style="--d:7">
+        <summary><h2>Dealers we checked</h2> <span class="sub" id="dealerSum" style="margin:0 0 0 8px"></span></summary>
+        <div class="dealers" id="dealers" style="margin-top:12px"></div>
+      </details>
+    </main>
+  </div>
+  <footer><span>Prices are what each dealer's website showed on the check date. Confirm with the dealer before you buy.</span><span>An ApexMoonAI project</span></footer>
+</div>
+
+<div class="tray" id="tray" hidden>
+  <div class="tray-head"><b id="trayTitle"></b><span style="display:flex;gap:8px"><button type="button" id="trayToggle">Hide</button><button type="button" id="trayClear">Clear</button></span></div>
+  <div class="tray-table" id="trayTable"></div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+const D = __DATA__;
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const FEATS = [
+  { k: "DAP", label: "Driving Assistance Professional", short: "Driving Assist Pro" },
+  { k: "PANORAMIC_ROOF", label: "Panoramic roof", short: "Panoramic roof" },
+  { k: "SKY_LOUNGE", label: "Sky Lounge LED roof", short: "Sky Lounge" },
+  { k: "MASSAGE", label: "Massage seats", short: "Massage seats" },
+  { k: "M_SPORT", label: "M Sport package", short: "M Sport" },
+  { k: "EXECUTIVE", label: "Executive package", short: "Executive" },
+  { k: "CLIMATE_COMFORT", label: "Climate Comfort package", short: "Climate Comfort" },
+  { k: "AIR_SUSPENSION", label: "Air suspension", short: "Air suspension" },
+];
+// Approximate paint and upholstery swatches, for recognition only.
+const SW = {
+  "Alpine White": "#f1f1ec", "Mineral White": "#e3e3dd", "Black Sapphire": "#1a1c22", "Carbon Black": "#1c2634",
+  "Skyscraper Grey": "#8b9198", "Brooklyn Grey": "#9c9e99", "Dravit Grey": "#696d6c", "Tanzanite Blue II": "#22305f",
+  "Manhattan Green": "#3c4b3d", "Grigio Telesto": "#8e9195", "Frozen Pure Grey": "#b9bcbd",
+  "Black": "#1b1b1b", "Cognac": "#9a5a2e", "Coffee": "#4a3226", "Silverstone": "#cbc5b8", "Tartufo": "#6b4f3a", "Ivory White": "#ece6d7",
+};
+const DEFAULT_WISH = {
+  budget: null, near: "any", radius: null, transit: true, colorsOnly: false, sort: "match",
+  ext: ["Skyscraper Grey", "Brooklyn Grey", "Dravit Grey"],
+  int: ["Cognac", "Coffee", "Tartufo", "Ivory White", "Silverstone"],
+  feats: { DAP: "must", PANORAMIC_ROOF: "nice", MASSAGE: "nice" },
+};
+const KEY = "x5finder.wish.v1", TKEY = "x5finder.theme";
+
+const dealerById = Object.fromEntries(D.dealers.map(d => [d.id, d]));
+const usd = c => c == null ? "" : "$" + Math.round(c / 100).toLocaleString("en-US");
+const fmtDay = iso => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+const cities = {};
+for (const d of D.dealers) if (d.lat != null) (cities[d.city] ||= []).push([d.lat, d.lon]);
+const CITY = Object.fromEntries(Object.entries(cities).map(([c, pts]) =>
+  [c, [pts.reduce((a, p) => a + p[0], 0) / pts.length, pts.reduce((a, p) => a + p[1], 0) / pts.length]]));
+function miles(a, b) {
+  const R = 3958.8, r = x => x * Math.PI / 180;
+  const dLat = r(b[0] - a[0]), dLon = r(b[1] - a[1]);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a[0])) * Math.cos(r(b[0])) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+let wish = load();
+let compare = [];
+let showAll = { match: 6, maybe: 6 };
+
+function load() {
+  try { const s = JSON.parse(localStorage.getItem(KEY)); if (s && s.feats) return { ...structuredClone(DEFAULT_WISH), ...s }; } catch (e) {}
+  return structuredClone(DEFAULT_WISH);
+}
+let savedTimer;
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify(wish)); } catch (e) {}
+  const s = document.getElementById("saved"); s.classList.add("on"); clearTimeout(savedTimer); savedTimer = setTimeout(() => s.classList.remove("on"), 1400);
+}
+let toastTimer;
+function toast(msg) { const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("on"), 1800); }
+
+// ---- Theme ----
+function currentMode() {
+  const a = document.documentElement.getAttribute("data-theme");
+  return a || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+}
+function syncThemeUi() {
+  const m = currentMode();
+  document.documentElement.setAttribute("data-mode", m);
+  const btn = document.getElementById("theme");
+  btn.setAttribute("aria-label", m === "dark" ? "Switch to light mode" : "Switch to dark mode");
+  btn.title = btn.getAttribute("aria-label");
+  document.getElementById("sys").hidden = !document.documentElement.hasAttribute("data-theme");
+}
+function setTheme(mode) {
+  const root = document.documentElement;
+  if (!REDUCED) { root.classList.add("theming"); setTimeout(() => root.classList.remove("theming"), 450); }
+  if (mode) { root.setAttribute("data-theme", mode); try { localStorage.setItem(TKEY, mode); } catch (e) {} }
+  else { root.removeAttribute("data-theme"); try { localStorage.removeItem(TKEY); } catch (e) {} }
+  syncThemeUi();
+}
+document.getElementById("theme").addEventListener("click", () => { setTheme(currentMode() === "dark" ? "light" : "dark"); toast(currentMode() === "dark" ? "Dark mode" : "Light mode"); });
+document.getElementById("sys").addEventListener("click", () => { setTheme(null); toast("Following your system setting"); });
+matchMedia("(prefers-color-scheme: light)").addEventListener("change", syncThemeUi);
+
+function distanceTo(car) {
+  if (wish.near === "any") return null;
+  const d = dealerById[car.dealer];
+  return d && d.lat != null ? miles(CITY[wish.near], [d.lat, d.lon]) : null;
+}
+function judge(car) {
+  const out = [], wishes = [];
+  const dist = distanceTo(car);
+  if (wish.budget != null) {
+    if (car.price == null) wishes.push({ label: "Within budget", s: "unk" });
+    else if (car.price <= wish.budget * 100) wishes.push({ label: "Within budget", s: "yes" });
+    else out.push("over budget");
+  }
+  if (wish.radius != null && dist != null && dist > wish.radius) out.push("too far");
+  if (!wish.transit && car.inTransit) out.push("still on the way");
+  if (wish.ext.length) { const ok = wish.ext.includes(car.ext); if (!ok && wish.colorsOnly) out.push("exterior color"); else wishes.push({ s: ok ? "yes" : "no" }); }
+  if (wish.int.length) { const ok = wish.int.includes(car.int); if (!ok && wish.colorsOnly) out.push("interior color"); else wishes.push({ s: ok ? "yes" : "no" }); }
+  const mustMissing = [];
+  for (const f of FEATS) {
+    const w = wish.feats[f.k]; if (!w) continue;
+    const has = car.feats[f.k] === "YES";
+    wishes.push({ s: has ? "yes" : "unk" });
+    if (w === "must" && !has) mustMissing.push(f.short);
+  }
+  const met = wishes.filter(w => w.s === "yes").length;
+  const group = out.length ? "out" : mustMissing.length ? "maybe" : "match";
+  return { group, out, met, total: wishes.length, mustMissing, dist };
+}
+function rank(list) {
+  const P = x => x.c.price ?? 1e12;
+  const by = {
+    match: (a, b) => (b.j.met - a.j.met) || (P(a) - P(b)),
+    price: (a, b) => (P(a) - P(b)) || (b.j.met - a.j.met),
+    near: (a, b) => ((a.j.dist ?? 1e9) - (b.j.dist ?? 1e9)) || (P(a) - P(b)),
+  }[wish.sort];
+  return list.sort(by);
+}
+function median(xs) { const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
+function quart(xs, q) { const s = [...xs].sort((a, b) => a - b); const i = (s.length - 1) * q, lo = Math.floor(i); return s[lo] + (s[Math.ceil(i)] - s[lo]) * (i - lo); }
+
+// Count-up for the answer numbers.
+// The first render shows real values at once; only later changes animate, from the old value to the new one.
+function countTo(el, to, fmt) {
+  const from = el._v; el._v = to;
+  if (REDUCED || from == null || from === to || !isFinite(from) || !isFinite(to)) { el.textContent = fmt(to); return; }
+  const t0 = performance.now(), dur = 550;
+  const step = now => { const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 4);
+    el.textContent = fmt(from + (to - from) * e); if (k < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+
+function render() {
+  const all = D.cars.map(c => ({ c, j: judge(c) }));
+  const match = rank(all.filter(x => x.j.group === "match"));
+  const maybe = rank(all.filter(x => x.j.group === "maybe"));
+  const out = all.filter(x => x.j.group === "out");
+  const priced = D.cars.filter(c => c.price != null).map(c => c.price);
+
+  countTo(document.getElementById("aMatch"), match.length, v => Math.round(v));
+  document.getElementById("aMatchLbl").textContent = "cars fit your wish list" + (maybe.length ? ` · ${maybe.length} more might` : "");
+  const mp = match.filter(x => x.c.price != null).map(x => x.c.price);
+  countTo(document.getElementById("aLow"), Math.min(...(mp.length ? mp : priced)), usd);
+  document.getElementById("aLowLbl").textContent = mp.length ? "lowest price among your matches" : "lowest price in Texas";
+  countTo(document.getElementById("aTypical"), median(priced), usd);
+  document.getElementById("aTypicalLbl").textContent = `typical price · most sell for ${usd(quart(priced, .25))}–${usd(quart(priced, .75))}`;
+  const t = trendStats();
+  document.getElementById("aTrend").textContent = t.changed ? (t.down >= t.up ? "▼ Going down" : "▲ Going up") : "● Steady";
+  document.getElementById("aTrendLbl").textContent = t.both ? `${t.changed ? t.changed + " price changes" : "no price changes"} across ${t.both} cars since ${fmtDay(t.first)}` : "needs two days of checks";
+
+  renderRange(all);
+  drawBand(all);
+  flip(document.getElementById("results"), () => renderResults(match, maybe, out));
+  renderTrend(t);
+  renderTray();
+}
+
+function trendStats() {
+  let both = 0, up = 0, down = 0, changes = [];
+  for (const c of D.cars) {
+    const h = c.history.filter(p => p[1] != null);
+    if (h.length < 2) continue;
+    both++;
+    const a = h[0][1], b = h[h.length - 1][1];
+    if (Math.abs(b - a) >= 100) { b < a ? down++ : up++; changes.push({ c, from: a, to: b, d0: h[0][0] }); }
+  }
+  return { both, up, down, changed: up + down, first: D.days[0], changes };
+}
+
+function extremes(all) {
+  const p = all.filter(x => x.c.price != null).sort((a, b) =>
+    (a.c.price - b.c.price) || a.c.firstSeen.localeCompare(b.c.firstSeen) || a.c.vin.localeCompare(b.c.vin));
+  return p.length ? { low: p[0], high: p[p.length - 1], n: p.length } : null;
+}
+function renderRange(all) {
+  const ex = extremes(all), el = document.getElementById("range"), sp = document.getElementById("spread");
+  if (!ex) { el.innerHTML = `<div class="empty">No dealer is showing a cash price right now.</div>`; sp.textContent = ""; return; }
+  if (ex.low === ex.high) { el.innerHTML = card(ex.low, -1, "range", "Only car with a cash price"); sp.textContent = ""; return; }
+  el.innerHTML = `<div class="low" style="display:grid;gap:8px"><span class="tag">▼ Lowest price in Texas</span>${card(ex.low, -1, "range")}</div>
+                  <div class="high" style="display:grid;gap:8px"><span class="tag">▲ Highest price in Texas</span>${card(ex.high, -1, "range")}</div>`;
+  sp.innerHTML = `<b class="num">${usd(ex.high.c.price - ex.low.c.price)}</b> difference between the lowest and highest price · ${ex.n} cars have a cash price`;
+}
+
+let firstBand = true;
+function drawBand(all) {
+  const pts = all.filter(x => x.c.price != null);
+  const lo = Math.floor(Math.min(...pts.map(x => x.c.price)) / 100 / 2500) * 2500;
+  const hi = Math.ceil(Math.max(...pts.map(x => x.c.price)) / 100 / 2500) * 2500;
+  const W = 900, padL = 22, padR = 22, top = 18, r = 5, bin = 500;
+  const x = v => padL + (v - lo) / (hi - lo) * (W - padL - padR);
+  const stacks = {};
+  const placed = pts.slice().sort((a, b) => a.c.vin.localeCompare(b.c.vin)).map(p => {
+    const b = Math.round(p.c.price / 100 / bin) * bin; const n = (stacks[b] = (stacks[b] || 0) + 1) - 1; return { p, b, n };
+  });
+  const maxStack = Math.max(...Object.values(stacks));
+  const H = top + maxStack * (r * 2 + 2) + 36, base = H - 30;
+  const tick = v => v % 1000 === 0 ? "$" + v / 1000 + "k" : "$" + (v / 1000).toFixed(1) + "k";
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Price of every car for sale, from ${usd(lo * 100)} to ${usd(hi * 100)}">`;
+  for (let v = lo; v <= hi; v += 2500) {
+    s += `<line x1="${x(v)}" x2="${x(v)}" y1="${top - 6}" y2="${base}" style="stroke:var(--line)" stroke-width="1"/>`;
+    s += `<text x="${x(v)}" y="${base + 19}" text-anchor="middle" font-size="12" style="fill:var(--muted);font-family:var(--mono)">${tick(v)}</text>`;
+  }
+  if (wish.budget != null && wish.budget >= lo && wish.budget <= hi) {
+    s += `<line x1="${x(wish.budget)}" x2="${x(wish.budget)}" y1="${top - 10}" y2="${base}" style="stroke:var(--gold)" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+    s += `<text x="${x(wish.budget) + 6}" y="${top}" font-size="12" style="fill:var(--gold);font-family:var(--body)">Your budget</text>`;
+  }
+  placed.forEach(({ p, b, n }, i) => {
+    const cy = base - r - 2 - n * (r * 2 + 2), fit = p.j.group === "match";
+    s += `<circle cx="${x(b)}" cy="${cy}" r="${r}" style="fill:${fit ? "var(--accent)" : "var(--dot)"};--i:${i}"><title>${usd(p.c.price)} · ${p.c.ext} / ${p.c.int} · ${dealerById[p.c.dealer].name}</title></circle>`;
+  });
+  s += `</svg>`;
+  const el = document.getElementById("band");
+  // Re-use circles after the first draw so a wish-list change re-colors dots smoothly instead of redrawing them.
+  if (!firstBand && el.querySelector("svg") && el.querySelectorAll("circle").length === placed.length) {
+    const tmp = document.createElement("div"); tmp.innerHTML = s;
+    const now = el.querySelectorAll("circle"), next = tmp.querySelectorAll("circle");
+    now.forEach((c, i) => c.setAttribute("style", next[i].getAttribute("style")));
+    el.querySelectorAll("line, text").forEach(n => n.remove());
+    const svg = el.querySelector("svg");
+    tmp.querySelectorAll("line, text").forEach(n => svg.insertBefore(n, svg.firstChild));
+  } else { el.innerHTML = s; }
+  if (firstBand) { firstBand = false; setTimeout(() => el.classList.remove("first"), 1600); }
+  document.getElementById("legBudget").innerHTML = wish.budget != null ? `<i style="background:transparent;border:1.5px dashed var(--gold)"></i>Your budget ${usd(wish.budget * 100)}` : "";
+}
+
+function card(x, i, group, title) {
+  const c = x.c, j = x.j, d = dealerById[c.dealer];
+  const priceHtml = c.price != null
+    ? `<div class="price num">${usd(c.price)}</div><div class="vsmsrp">${c.msrp ? vsMsrp(c.price, c.msrp) : "cash price"}</div>`
+    : `<div class="price none">${c.noPriceWhy}</div><div class="vsmsrp">${c.msrp ? "MSRP " + usd(c.msrp) + " · ask the dealer" : "ask the dealer"}</div>`;
+  const status = j.group === "match" ? `<span class="badge good">${j.total ? `Meets ${j.met} of ${j.total} wishes` : "Fits"}</span>`
+    : j.group === "maybe" ? `<span class="badge maybe">Not listed: ${j.mustMissing.join(", ")}</span>`
+    : `<span class="badge out">Outside your limits: ${j.out.join(", ")}</span>`;
+  const wanted = new Set(FEATS.filter(f => wish.feats[f.k]).map(f => f.k));
+  const showAllListed = group === "range";
+  const feats = FEATS.filter(f => c.feats[f.k] === "YES" ? (showAllListed || true) : wanted.has(f.k)).map(f =>
+    c.feats[f.k] === "YES" ? `<span class="feat yes ${wanted.has(f.k) ? "want" : ""}">✓ ${f.short}</span>`
+                           : `<span class="feat unk want" title="The dealer's page doesn't mention it. Ask the dealer.">? ${f.short}</span>`).join("");
+  const dist = j.dist != null ? ` <span class="dist">· ${Math.round(j.dist)} mi</span>` : "";
+  const inCmp = compare.includes(c.vin);
+  return `<article class="car ${group === "match" && i === 0 && wish.sort === "match" ? "best" : ""}" data-vin="${c.vin}">
+    ${title ? `<span class="eyebrow">${title}</span>` : ""}
+    <div class="car-top"><div>${priceHtml}</div>${status}</div>
+    <div class="where"><b>${d.name}</b> · ${d.city}${dist}</div>
+    <div class="colors"><span><i class="sw" style="background:${SW[c.ext] || "var(--sunk)"}"></i>${c.ext}</span><span><i class="sw" style="background:${SW[c.int] || "var(--sunk)"}"></i>${c.int}${c.intMat ? " " + c.intMat : ""} interior</span></div>
+    <div class="feats">${feats || '<span class="note">No packages listed by the dealer</span>'}</div>
+    <div class="car-foot">
+      <span class="seen">${c.inTransit ? "On the way to the dealer" : "On the lot"} · first seen ${fmtDay(c.firstSeen)}</span>
+      <span style="display:flex;gap:12px;align-items:center">
+        <label class="cmp"><input type="checkbox" data-cmp="${c.vin}" ${inCmp ? "checked" : ""} ${!inCmp && compare.length >= 3 ? "disabled" : ""}> Compare</label>
+        <a class="go" href="${c.url}" target="_blank" rel="noopener">View at dealer <span>↗</span></a>
+      </span>
+    </div>
+  </article>`;
+}
+function vsMsrp(p, m) {
+  const d = Math.round((p - m) / 100);
+  if (Math.abs(d) < 1) return `At MSRP ${usd(m)}`;
+  return d < 0 ? `${usd(-d * 100)} below MSRP ${usd(m)}` : `${usd(d * 100)} above MSRP ${usd(m)}`;
+}
+
+// FLIP: cars that stay in the list glide to their new position; new ones fade up.
+function flip(container, update) {
+  if (REDUCED) { update(); return; }
+  const before = new Map([...container.querySelectorAll(".car[data-vin]")].map(el => [el.dataset.vin, el.getBoundingClientRect()]));
+  update();
+  container.querySelectorAll(".car[data-vin]").forEach((el, i) => {
+    const b = before.get(el.dataset.vin), a = el.getBoundingClientRect();
+    if (b) {
+      const dx = b.left - a.left, dy = b.top - a.top;
+      if (dx || dy) el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: 520, easing: "cubic-bezier(0.16, 1, 0.3, 1)" });
+    } else if (before.size) {
+      el.animate([{ opacity: 0, transform: "translateY(14px)" }, { opacity: 1, transform: "none" }], { duration: 420, delay: Math.min(i, 8) * 35, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "backwards" });
+    }
+  });
+}
+
+function renderResults(match, maybe, out) {
+  const sec = (key, title, list, help) => {
+    if (!list.length) return "";
+    const shown = list.slice(0, showAll[key]);
+    return `<div class="section-title">${title} <span class="count">${list.length}</span></div>
+      ${help ? `<p class="note" style="margin:-4px 0 10px">${help}</p>` : ""}
+      <div class="cards">${shown.map((x, i) => card(x, i, key)).join("")}</div>
+      ${list.length > shown.length ? `<button class="more" type="button" data-more="${key}">Show all ${list.length}</button>` : ""}`;
+  };
+  let html = sec("match", "Fit your wish list", match, "");
+  html += sec("maybe", "Might fit: the dealer doesn't list a must-have", maybe,
+    "These cars may still have the package. Dealer pages often leave it out, so ask the dealer before ruling them out.");
+  if (!match.length && !maybe.length) html = `<div class="empty">No cars fit right now. Try a higher budget, a wider distance, or turn a must-have into a nice-to-have.</div>`;
+  if (out.length) {
+    const why = {};
+    for (const x of out) for (const r of x.j.out) why[r] = (why[r] || 0) + 1;
+    html += `<p class="note" style="margin-top:14px">${out.length} cars hidden by your limits: ${Object.entries(why).map(([r, n]) => `${n} ${r}`).join(", ")}.</p>`;
+  }
+  document.getElementById("results").innerHTML = html;
+}
+
+function renderTrend(t) {
+  document.getElementById("trendSub").textContent = t.both
+    ? `We have checked dealers on ${D.days.length} days (${D.days.map(fmtDay).join(", ")}). ${t.both} cars were for sale on more than one of those days.`
+    : "We need at least two days of checks to show price changes.";
+  const body = document.getElementById("trendBody");
+  if (!t.changed) { body.innerHTML = `<div class="empty">None of those ${t.both} cars changed price. A clearer trend appears after about a week of daily checks; this section then shows which cars dropped in price and by how much.</div>`; return; }
+  body.innerHTML = `<div class="cards">${t.changes.map(ch => `<article class="car"><div class="price num">${usd(ch.to)}</div>
+    <div class="${ch.to < ch.from ? "yes" : "unk"}">${ch.to < ch.from ? "▼" : "▲"} ${usd(Math.abs(ch.to - ch.from))} since ${fmtDay(ch.d0)}</div>
+    <div class="where">${dealerById[ch.c.dealer].name} · ${ch.c.ext}</div></article>`).join("")}</div>`;
+}
+
+function renderDealers() {
+  const why = { NO_SOURCE: "Website not on file yet", NOT_REPORTED: "Couldn't read the website", PARTIAL: "Partly checked" };
+  const ok = D.dealers.filter(d => d.status === "REPORTED").sort((a, b) => b.cars - a.cars);
+  const no = D.dealers.filter(d => d.status !== "REPORTED");
+  document.getElementById("dealerSum").textContent = `${ok.length} of ${D.dealers.length} Texas dealers checked`;
+  document.getElementById("dealers").innerHTML =
+    `<ul>${ok.map(d => `<li><span><i class="dot" style="background:var(--good)"></i>${d.name}, ${d.city}</span><span class="num">${d.cars} ${d.cars === 1 ? "car" : "cars"}</span></li>`).join("")}</ul>` +
+    `<ul>${no.map(d => `<li><span><i class="dot" style="background:var(--warn)"></i>${d.name}, ${d.city}</span><span class="note">${why[d.status] || "Not checked"}</span></li>`).join("")}</ul>`;
+}
+
+function renderTray() {
+  const tray = document.getElementById("tray");
+  const wasHidden = tray.hidden;
+  tray.hidden = compare.length === 0;
+  if (!compare.length) return;
+  const cars = compare.map(v => D.cars.find(c => c.vin === v));
+  document.getElementById("trayTitle").textContent = `Comparing ${cars.length} ${cars.length === 1 ? "car" : "cars"}` + (cars.length < 3 ? " · add up to 3" : "");
+  const row = (label, f) => `<tr><th>${label}</th>${cars.map(c => `<td>${f(c)}</td>`).join("")}</tr>`;
+  document.getElementById("trayTable").innerHTML = `<table>
+    ${row("Price", c => c.price != null ? `<b class="num">${usd(c.price)}</b>` : `<span class="unk">${c.noPriceWhy}</span>`)}
+    ${row("MSRP", c => c.msrp ? usd(c.msrp) : "")}
+    ${row("Dealer", c => `${dealerById[c.dealer].name}, ${dealerById[c.dealer].city}`)}
+    ${row("Exterior", c => c.ext)}
+    ${row("Interior", c => c.int + (c.intMat ? " " + c.intMat : ""))}
+    ${FEATS.map(f => row(f.label, c => c.feats[f.k] === "YES" ? `<span class="yes">✓ Listed</span>` : `<span class="unk">Not listed</span>`)).join("")}
+    ${row("Availability", c => c.inTransit ? "On the way" : "On the lot")}
+    ${row("VIN", c => `<span class="mono">${c.vin}</span>`)}
+  </table>`;
+  if (wasHidden) toast("Added to compare");
+}
+
+// ---- Controls ----
+function chips(el, key) {
+  const counts = {};
+  for (const c of D.cars) counts[c[key]] = (counts[c[key]] || 0) + 1;
+  el.innerHTML = Object.keys(counts).sort((a, b) => counts[b] - counts[a]).map(v =>
+    `<button type="button" class="chip" data-chip="${key}" data-v="${v}" aria-pressed="${wish[key].includes(v)}"><i class="sw" style="background:${SW[v] || "var(--sunk)"}"></i>${v} <span class="ct">${counts[v]}</span></button>`).join("");
+}
+function buildControls() {
+  document.getElementById("asof").textContent = new Date(D.asOf + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  const b = document.getElementById("budget"); b.value = wish.budget ?? b.max;
+  const near = document.getElementById("near");
+  near.innerHTML = `<option value="any">Anywhere in Texas</option>` + Object.keys(CITY).sort().map(c => `<option value="${c}">Near ${c}</option>`).join("");
+  near.value = wish.near;
+  document.getElementById("radius").innerHTML = [50, 100, 200, null].map(r =>
+    `<button type="button" class="chip" data-radius="${r ?? "any"}" aria-pressed="${wish.radius === r}" ${wish.near === "any" ? "disabled" : ""}>${r ? "Within " + r + " mi" : "Any distance"}</button>`).join("");
+  document.getElementById("pkgs").innerHTML = FEATS.map(f => {
+    const n = D.cars.filter(c => c.feats[f.k] === "YES").length;
+    return `<span class="name">${f.label} <span class="ct">(${n})</span></span><span class="seg" role="group" aria-label="${f.label}">${
+      [["must", "Must"], ["nice", "Nice"], ["", "Skip"]].map(([v, l]) => `<button type="button" data-feat="${f.k}" data-v="${v}" aria-pressed="${(wish.feats[f.k] || "") === v}">${l}</button>`).join("")}</span>`;
+  }).join("");
+  chips(document.getElementById("extChips"), "ext");
+  chips(document.getElementById("intChips"), "int");
+  document.getElementById("colorsOnly").checked = wish.colorsOnly;
+  document.getElementById("transit").checked = wish.transit;
+  document.getElementById("sort").value = wish.sort;
+  budgetLabel();
+}
+function budgetLabel() { document.getElementById("budgetOut").textContent = wish.budget == null ? "No limit" : "Up to " + usd(wish.budget * 100); }
+function update() { save(); buildControls(); render(); }
+
+document.addEventListener("click", e => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.chip) { const k = t.dataset.chip, v = t.dataset.v; wish[k] = wish[k].includes(v) ? wish[k].filter(x => x !== v) : [...wish[k], v]; update(); }
+  else if (t.dataset.radius) { wish.radius = t.dataset.radius === "any" ? null : +t.dataset.radius; update(); }
+  else if (t.dataset.feat) { const v = t.dataset.v; if (v) wish.feats[t.dataset.feat] = v; else delete wish.feats[t.dataset.feat]; update(); }
+  else if (t.dataset.more) { showAll[t.dataset.more] = 1e9; render(); }
+  else if (t.id === "reset") { wish = structuredClone(DEFAULT_WISH); update(); toast("Wish list reset"); }
+  else if (t.id === "trayClear") { compare = []; render(); }
+  else if (t.id === "trayToggle") { const tb = document.getElementById("trayTable"); tb.hidden = !tb.hidden; t.textContent = tb.hidden ? "Show" : "Hide"; }
+});
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (t.dataset.cmp) { const v = t.dataset.cmp; compare = t.checked ? [...compare, v].slice(0, 3) : compare.filter(x => x !== v); render(); }
+  else if (t.id === "near") { wish.near = t.value; if (t.value === "any") wish.radius = null; else if (wish.radius == null) wish.radius = 200; update(); }
+  else if (t.id === "colorsOnly") { wish.colorsOnly = t.checked; update(); }
+  else if (t.id === "transit") { wish.transit = t.checked; update(); }
+  else if (t.id === "sort") { wish.sort = t.value; save(); render(); }
+});
+document.getElementById("budget").addEventListener("input", e => {
+  const v = +e.target.value; wish.budget = v >= +e.target.max ? null : v; budgetLabel(); save(); render();
+});
+
+syncThemeUi();
+buildControls();
+renderDealers();
+render();
+</script>

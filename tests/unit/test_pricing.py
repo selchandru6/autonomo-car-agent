@@ -22,7 +22,7 @@ def test_labels() -> None:
     assert classify_price_label("Selling Price") is PriceKind.ADVERTISED
     assert classify_price_label("Est. monthly payment") is PriceKind.PAYMENT
     assert classify_price_label("BMW Loyalty Credit") is PriceKind.CONDITIONAL_INCENTIVE
-    assert classify_price_label("Window Tint") is None
+    assert classify_price_label("Window Tint") is PriceKind.ADDON
 
 
 def test_msrp_only_means_price_missing_not_zero() -> None:
@@ -65,6 +65,8 @@ def test_addon_fallback_and_first_advertised_wins() -> None:
     kinds = [c.kind for c in ps.components]
     assert PriceKind.CONDITIONAL_INCENTIVE in kinds
     assert PriceKind.ADDON in kinds
+    assert PriceKind.UNCLASSIFIED not in kinds
+    assert Flag.PRICE_LABEL_UNKNOWN not in ps.flags
 
 
 def test_price_band_flags_implausible() -> None:

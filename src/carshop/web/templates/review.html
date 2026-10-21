@@ -4,7 +4,7 @@
 
 <section class="glass rounded-2xl p-5">
   <h2 class="font-semibold">Items awaiting an operator decision</h2>
-  <p class="text-xs text-slate-400 mt-1">Rows flagged PENDING_REVIEW are excluded from screens, exports and digests until decided. Decisions are audited and never overwrite the original extraction.</p>
+  <p class="text-xs text-slate-400 mt-1">This screen is read-only. Decide from the CLI so the operator id cannot be spoofed: <span class="font-mono">carshop review approve ITEM</span>, <span class="font-mono">reject</span>, or <span class="font-mono">correct</span>. The original extraction stays.</p>
   <div class="mt-4 space-y-3">
     {% for it in items %}
     <div class="rounded-xl border border-slate-800 bg-slate-950/50 p-4 grid md:grid-cols-[1fr_auto] gap-4">
@@ -17,14 +17,7 @@
         </div>
         <div class="text-sm text-slate-300 mt-2">{{ it.issue | replace('_', ' ') | capitalize }} — the extraction stays as observed; decide whether this row may be counted.</div>
       </div>
-      <form method="post" action="/review/{{ it.item_id }}" class="flex flex-col gap-2 text-xs min-w-[14rem]">
-        <input name="operator_id" placeholder="operator id" value="operator" class="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
-        <input name="reason" placeholder="reason (audited)" class="bg-slate-900 border border-slate-700 rounded-md px-2 py-1.5">
-        <div class="flex gap-2">
-          <button name="decision" value="VALIDATED" class="flex-1 rounded-md bg-emerald-600/80 hover:bg-emerald-500 px-3 py-1.5 font-semibold text-slate-950">Validate</button>
-          <button name="decision" value="REJECTED" class="flex-1 rounded-md bg-rose-600/80 hover:bg-rose-500 px-3 py-1.5 font-semibold text-slate-950">Reject</button>
-        </div>
-      </form>
+      <div class="text-xs text-slate-400 font-mono">carshop review approve {{ it.item_id }}</div>
     </div>
     {% else %}
     <div class="py-10 text-center text-slate-500"><div class="text-3xl mb-2">✓</div>Nothing to review.</div>
