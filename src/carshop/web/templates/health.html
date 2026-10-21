@@ -3,36 +3,36 @@
 {% block heading %}Data health & coverage{% endblock %}
 {% block content %}
 
-<section class="glass rounded-2xl p-5">
+<section class="panel p-5">
   <div class="flex flex-wrap items-start justify-between gap-3">
     <div>
       <h2 class="font-semibold">Registry coverage — every Texas BMW dealer on the BMW USA locator</h2>
-      <p class="text-xs text-slate-400 mt-1">The denominator is every active registry dealer. A dealer that was not read is a gap, never a zero. <span class="text-slate-300">NO_SOURCE</span> means discovery found no public inventory URL (reason shown); an operator override in <code>overrides.yaml</code> fixes it.</p>
+      <p class="text-xs muted mt-1">The denominator is every active registry dealer. A dealer that was not read is a gap, never a zero. <span>NO_SOURCE</span> means discovery found no public inventory URL (reason shown); an operator override in <code>overrides.yaml</code> fixes it.</p>
     </div>
-    <div class="text-xs text-right text-slate-400">
-      <div><span class="text-slate-200 font-semibold text-base">{{ coverage_summary.reported }}</span> / {{ coverage_summary.active }} active dealers REPORTED
-        <span class="ml-1 badge {{ 'b-yes' if coverage_summary.active and coverage_summary.reported * 10 >= coverage_summary.active * 9 else 'b-partial' }}">{{ ((coverage_summary.reported / coverage_summary.active * 100) | round(0) | int) if coverage_summary.active else 0 }}% · target 90%</span></div>
-      {% if locator_snapshot %}<div class="mt-1">Locator snapshot {{ locator_snapshot.fetched_at | age }} · {{ locator_snapshot.dealer_count }} TX dealers · sha {{ locator_snapshot.sha256[:10] }}</div>{% else %}<div class="mt-1 text-amber-300">No locator snapshot recorded yet.</div>{% endif %}
+    <div class="text-xs text-right muted">
+      <div><span class="font-semibold text-base">{{ coverage_summary.reported }}</span> / {{ coverage_summary.active }} active dealers REPORTED
+        <span class="ml-1 chip {{ 'c-yes' if coverage_summary.active and coverage_summary.reported * 10 >= coverage_summary.active * 9 else 'c-partial' }}">{{ ((coverage_summary.reported / coverage_summary.active * 100) | round(0) | int) if coverage_summary.active else 0 }}% · target 90%</span></div>
+      {% if locator_snapshot %}<div class="mt-1">Locator snapshot {{ locator_snapshot.fetched_at | age }} · {{ locator_snapshot.dealer_count }} TX dealers · sha {{ locator_snapshot.sha256[:10] }}</div>{% else %}<div class="mt-1 warn">No locator snapshot recorded yet.</div>{% endif %}
     </div>
   </div>
   {% if unreachable %}
-  <p class="mt-3 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">{{ unreachable.message }}{% if unreachable.names %} · {{ unreachable.names }}{% endif %}</p>
+  <p class="mt-3 note-warn text-sm">{{ unreachable.message }}{% if unreachable.names %} · {{ unreachable.names }}{% endif %}</p>
   {% endif %}
   <div class="overflow-x-auto mt-3">
     <table class="w-full text-sm compact">
-      <thead class="text-left text-[11px] uppercase tracking-wider text-slate-400"><tr><th>Dealer</th><th>Center</th><th>City</th><th>Platform</th><th>Discovery</th><th>Latest status</th><th>Reason</th><th>Last success</th><th>Last attempt</th><th>Start URL</th></tr></thead>
+      <thead class="text-left text-[11px] uppercase tracking-wider muted"><tr><th>Dealer</th><th>Center</th><th>City</th><th>Platform</th><th>Discovery</th><th>Latest status</th><th>Reason</th><th>Last success</th><th>Last attempt</th><th>Start URL</th></tr></thead>
       <tbody>
         {% for d in coverage %}
-        <tr class="border-t border-slate-800/70 {{ 'opacity-50' if not d.active }}">
-          <td class="font-medium" title="{{ d.notes or '' }}">{{ d.name }}{% if not d.active %} <span class="badge b-flag">inactive</span>{% endif %}{% if d.source == 'override' %} <span class="badge b-partial" title="operator override">override</span>{% endif %}</td>
-          <td class="text-xs font-mono text-slate-400">{{ d.center_number or '—' }}</td>
+        <tr class="border-t {{ 'opacity-50' if not d.active }}">
+          <td class="font-medium" title="{{ d.notes or '' }}"><a class="link" href="/dealers/{{ d.dealer_id }}">{{ d.name }}</a>{% if not d.active %} <span class="chip c-flag">inactive</span>{% endif %}{% if d.source == 'override' %} <span class="chip c-partial" title="operator override">override</span>{% endif %}</td>
+          <td class="text-xs font-mono muted">{{ d.center_number or '—' }}</td>
           <td>{{ d.city }}</td><td class="text-xs">{{ d.platform }}</td>
-          <td class="text-xs"><span class="badge {{ 'b-yes' if d.discovery_reason in ('homepage_link', 'platform_convention', 'sitemap', 'override') else 'b-partial' if d.discovery_reason == 'unfiltered_new' else 'b-unknown' }}" title="{{ d.notes or '' }}">{{ (d.discovery_reason or '—') | replace('_', ' ') }}</span></td>
-          <td>{% if d.last_status %}{{ status(d.last_status) }}{% elif not d.start_url %}{{ status('NO_SOURCE') }}{% else %}<span class="text-slate-500 text-xs">never attempted</span>{% endif %}</td>
-          <td class="text-xs text-slate-400">{{ d.last_reason or '—' }}</td>
+          <td class="text-xs"><span class="chip {{ 'c-yes' if d.discovery_reason in ('homepage_link', 'platform_convention', 'sitemap', 'override') else 'c-partial' if d.discovery_reason == 'unfiltered_new' else 'c-unknown' }}" title="{{ d.notes or '' }}">{{ (d.discovery_reason or '—') | replace('_', ' ') }}</span></td>
+          <td>{% if d.last_status %}{{ status(d.last_status) }}{% elif not d.start_url %}{{ status('NO_SOURCE') }}{% else %}<span class="muted text-xs">never attempted</span>{% endif %}</td>
+          <td class="text-xs muted">{{ d.last_reason or '—' }}</td>
           <td class="text-xs">{{ d.last_success_date or '—' }}</td>
-          <td class="text-xs text-slate-400">{{ d.last_attempt_at | age if d.last_attempt_at else '—' }}</td>
-          <td class="text-xs">{% if d.start_url %}<a class="text-sky-300 hover:underline" href="{{ d.start_url }}" target="_blank" rel="noopener">{{ d.start_url | replace('https://', '') | truncate(48) }}</a>{% elif d.hostname %}<span class="text-amber-300" title="{{ d.notes or '' }}">none found on {{ d.hostname }}</span>{% else %}<span class="text-amber-300">locator lists no website</span>{% endif %}</td>
+          <td class="text-xs muted">{{ d.last_attempt_at | age if d.last_attempt_at else '—' }}</td>
+          <td class="text-xs">{% if d.start_url %}<a class="link hover:underline" href="{{ d.start_url }}" target="_blank" rel="noopener">{{ d.start_url | replace('https://', '') | truncate(48) }}</a>{% elif d.hostname %}<span class="warn" title="{{ d.notes or '' }}">none found on {{ d.hostname }}</span>{% else %}<span class="warn">locator lists no website</span>{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -40,67 +40,67 @@
   </div>
 </section>
 
-<section class="glass rounded-2xl p-5">
+<section class="panel p-5">
   <h2 class="font-semibold">30-day status grid</h2>
   <div class="overflow-x-auto mt-3">
     <table class="text-xs compact">
-      <thead><tr class="text-left text-[11px] uppercase tracking-wider text-slate-400"><th class="pr-4">Dealer</th>{% for d in grid.dates %}<th class="px-1 whitespace-nowrap font-normal">{{ d[5:] }}</th>{% endfor %}</tr></thead>
+      <thead><tr class="text-left text-[11px] uppercase tracking-wider muted"><th class="pr-4">Dealer</th>{% for d in grid.dates %}<th class="px-1 whitespace-nowrap font-normal">{{ d[5:] }}</th>{% endfor %}</tr></thead>
       <tbody>
         {% for dealer, cells in grid.grid.items() %}
-        <tr class="border-t border-slate-800/70">
+        <tr class="border-t">
           <td class="pr-4 font-medium whitespace-nowrap">{{ dealer }}</td>
           {% for d in grid.dates %}{% set c = cells.get(d) %}
           <td class="px-1 py-1">
-            {% if c %}<a href="/inventory?run_id={{ c.run_id }}&dealer={{ c.dealer_id }}" title="{{ c.status }} {{ c.reason_code or '' }} · {{ c.eligible_count }} eligible" class="block h-6 w-8 rounded {{ 'bg-emerald-500/80' if c.status == 'REPORTED' else 'bg-amber-500/80' if c.status == 'PARTIAL' else 'bg-rose-500/80' if c.status == 'NOT_REPORTED' else 'bg-slate-700' }} text-center leading-6 text-slate-950 font-semibold">{{ c.eligible_count if c.status == 'REPORTED' else '' }}</a>
-            {% else %}<div class="h-6 w-8 rounded bg-slate-900 border border-slate-800"></div>{% endif %}
+            {% if c %}<a href="/pipeline?run_id={{ c.run_id }}&dealer={{ c.dealer_id }}" title="{{ c.status }} {{ c.reason_code or '' }} · {{ c.eligible_count }} eligible" class="cell cell-{{ c.status | lower if c.status in ('REPORTED', 'PARTIAL', 'NOT_REPORTED') else 'no_source' }}">{{ c.eligible_count if c.status == 'REPORTED' else '' }}</a>
+            {% else %}<div class="cell cell-gap" title="no run this day"></div>{% endif %}
           </td>{% endfor %}
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-  <div class="mt-3 flex gap-4 text-[11px] text-slate-400"><span><i class="inline-block h-3 w-3 rounded bg-emerald-500/80 align-middle"></i> reported (number = eligible units)</span><span><i class="inline-block h-3 w-3 rounded bg-amber-500/80 align-middle"></i> partial</span><span><i class="inline-block h-3 w-3 rounded bg-rose-500/80 align-middle"></i> not reported</span><span><i class="inline-block h-3 w-3 rounded bg-slate-700 align-middle"></i> no source</span></div>
+  <div class="mt-3 flex gap-4 text-[11px] muted"><span><i class="legend-cell cell-reported"></i> reported (number = eligible units)</span><span><i class="legend-cell cell-partial"></i> partial</span><span><i class="legend-cell cell-not_reported"></i> not reported</span><span><i class="legend-cell cell-no_source"></i> no source</span><span><i class="legend-cell cell-gap"></i> no run</span></div>
 </section>
 
 <section class="grid xl:grid-cols-3 gap-6">
-  <div class="glass rounded-2xl p-5">
+  <div class="panel p-5">
     <h2 class="font-semibold">Exclusions in latest run</h2>
-    <p class="text-xs text-slate-400 mt-1">Why raw listings were not counted. Each code is a deterministic rule in <code>domain/classify.py</code>.</p>
+    <p class="text-xs muted mt-1">Why raw listings were not counted. Each code is a deterministic rule in <code>domain/classify.py</code>.</p>
     <div id="excl" class="chart mt-3"></div>
   </div>
-  <div class="glass rounded-2xl p-5 xl:col-span-2">
-    <h2 class="font-semibold">Fetch attempts in latest run {% if run %}<span class="text-xs text-slate-500 font-normal font-mono">{{ run.run_id }}</span>{% endif %}</h2>
+  <div class="panel p-5 xl:col-span-2">
+    <h2 class="font-semibold">Fetch attempts in latest run {% if run %}<span class="text-xs muted font-normal font-mono">{{ run.run_id }}</span>{% endif %}</h2>
     <div class="overflow-x-auto mt-3 max-h-80">
       <table class="w-full text-xs compact">
-        <thead class="sticky-head text-left text-[11px] uppercase tracking-wider text-slate-400"><tr><th>Dealer</th><th>Method</th><th>Renderer</th><th>#</th><th>HTTP</th><th>Error</th><th>ms</th><th>Robots</th><th>Snapshot</th><th>URL</th></tr></thead>
+        <thead class="sticky-head text-left text-[11px] uppercase tracking-wider muted"><tr><th>Dealer</th><th>Method</th><th>Renderer</th><th>#</th><th>HTTP</th><th>Error</th><th>ms</th><th>Robots</th><th>Snapshot</th><th>URL</th></tr></thead>
         <tbody>
           {% for a in attempts %}
-          <tr class="border-t border-slate-800/70">
-            <td>{{ a.dealer_id }}</td><td><span class="badge b-flag">{{ a.method }}</span></td><td class="text-slate-400">{{ a.renderer }}</td><td class="tabular-nums">{{ a.attempt }}</td>
-            <td class="tabular-nums {{ 'text-emerald-300' if a.http_status and a.http_status < 400 else 'text-rose-300' }}">{{ a.http_status or '—' }}</td>
-            <td class="{{ 'text-rose-300' if a.error_code else 'text-slate-500' }}">{{ a.error_code or 'ok' }}</td><td class="tabular-nums text-slate-400">{{ a.latency_ms }}</td>
-            <td class="text-slate-400">{{ a.robots_decision }}</td>
-            <td class="font-mono text-[11px] text-slate-500">{{ (a.content_hash or '')[:10] or '—' }}</td>
-            <td class="font-mono text-[11px] text-slate-400 truncate max-w-xs" title="{{ a.url }}">{{ a.url | replace('https://', '') }}</td>
+          <tr class="border-t">
+            <td>{{ a.dealer_id }}</td><td><span class="chip c-flag">{{ a.method }}</span></td><td class="muted">{{ a.renderer }}</td><td class="tabular-nums">{{ a.attempt }}</td>
+            <td class="tabular-nums {{ 'good' if a.http_status and a.http_status < 400 else 'bad' }}">{{ a.http_status or '—' }}</td>
+            <td class="{{ 'bad' if a.error_code else 'muted' }}">{{ a.error_code or 'ok' }}</td><td class="tabular-nums muted">{{ a.latency_ms }}</td>
+            <td class="muted">{{ a.robots_decision }}</td>
+            <td class="font-mono text-[11px] muted">{{ (a.content_hash or '')[:10] or '—' }}</td>
+            <td class="font-mono text-[11px] muted truncate max-w-xs" title="{{ a.url }}">{{ a.url | replace('https://', '') }}</td>
           </tr>
-          {% else %}<tr><td colspan="10" class="py-6 text-center text-slate-500">No attempts recorded.</td></tr>{% endfor %}
+          {% else %}<tr><td colspan="10" class="py-6 text-center muted">No attempts recorded.</td></tr>{% endfor %}
         </tbody>
       </table>
     </div>
   </div>
 </section>
 
-<section class="glass rounded-2xl p-5">
+<section class="panel p-5">
   <h2 class="font-semibold">Excluded listings ({{ exclusions | length }})</h2>
   <div class="overflow-x-auto mt-3 max-h-96">
     <table class="w-full text-xs compact">
-      <thead class="sticky-head text-left text-[11px] uppercase tracking-wider text-slate-400"><tr><th>Dealer</th><th>VIN</th><th>Code</th><th>Evidence</th><th>Link</th></tr></thead>
+      <thead class="sticky-head text-left text-[11px] uppercase tracking-wider muted"><tr><th>Dealer</th><th>VIN</th><th>Code</th><th>Evidence</th><th>Link</th></tr></thead>
       <tbody>
         {% for e in exclusions %}
-        <tr class="border-t border-slate-800/70 align-top">
-          <td>{{ e.dealer_name }}</td><td class="font-mono">{{ e.vin or '—' }}</td><td><span class="badge b-flag">{{ e.reason_code }}</span></td>
-          <td class="text-slate-400">{{ e.evidence_quote }}</td>
-          <td>{% if e.url %}<a class="text-sky-300" href="{{ e.url }}" target="_blank" rel="noopener">↗</a>{% endif %}</td>
+        <tr class="border-t align-top">
+          <td><a class="link" href="/dealers/{{ e.dealer_id }}">{{ e.dealer_name }}</a></td><td class="font-mono">{{ e.vin or '—' }}</td><td><span class="chip c-flag">{{ e.reason_code }}</span></td>
+          <td class="muted">{{ e.evidence_quote }}</td>
+          <td>{% if e.url %}<a class="link" href="{{ e.url }}" target="_blank" rel="noopener">↗</a>{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -113,7 +113,7 @@
 const byCode = {{ by_code | tojson_safe }};
 mkChart('excl', {
   tooltip: { trigger: 'item' },
-  series: [{ type: 'pie', radius: ['45%', '75%'], label: { color: '#cbd5e1', formatter: '{b}\n{c}' }, data: byCode.map(([n, v]) => ({ name: n, value: v })) }]
+  series: [{ type: 'pie', radius: ['45%', '75%'], label: { formatter: '{b}\n{c}' }, data: byCode.map(([n, v]) => ({ name: n, value: v })) }]
 });
 </script>
 {% endblock %}

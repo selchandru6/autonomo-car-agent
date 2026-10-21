@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Not found{% endblock %}
+{% block heading %}Not found{% endblock %}
+{% block content %}
+<section class="panel p-6 max-w-2xl">
+  <div class="eyebrow">404</div>
+  <h2 class="text-2xl mt-1">We could not find that page</h2>
+  <p class="muted mt-2">{{ detail if detail and detail != 'Not Found' else 'The address may be old, or the car, dealer, or run is not in the database.' }}</p>
+  <form action="/search" method="get" role="search" class="mt-4 flex gap-2">
+    <label class="sr-only" for="nfQ">Search VIN, stock, dealer, city, run or page</label>
+    <input id="nfQ" type="search" name="q" placeholder="VIN, last 6 of a VIN, dealer, city, run date…" class="flex-1" style="font-size:14px;padding:.5rem .7rem">
+    <button type="submit" class="chip c-on" style="padding:.45rem .9rem;font-size:13px">Search</button>
+  </form>
+  <p class="mt-4 text-sm">
+    <a class="link" href="/">Find a car</a> ·
+    <a class="link" href="/inventory">Eligible cars</a> ·
+    <a class="link" href="/check">Today's check</a>
+  </p>
+</section>
+{% endblock %}

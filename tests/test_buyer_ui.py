@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -38,17 +39,19 @@ def _miles(a: tuple[float, float], b: tuple[float, float]) -> float:
 
 
 def test_buyer_page_hides_pipeline_words() -> None:
-    html = TestClient(create_app()).get("/").text
+    client = TestClient(create_app())
+    html = client.get("/").text
     assert "Texas X5 Finder" in html
     assert "Cars for you" in html
-    assert "Today's check" in html
+    assert "Today&#39;s check" in html
     assert "Once a day" in html
     assert "6:00 AM Central" in html
     assert FORBIDDEN.search(html) is None
     assert "Price range today" in html
     assert "Use system setting" in html
     assert "x5finder.theme" in html
-    assert "x5finder.wish.v1" in html
+    assert "/static/finder.js" in html
+    assert "x5finder.wish.v1" in client.get("/static/finder.js").text
 
 
 def test_home_is_one_screen_and_the_old_overview_lands_on_todays_check() -> None:
@@ -56,12 +59,14 @@ def test_home_is_one_screen_and_the_old_overview_lands_on_todays_check() -> None
     home = client.get("/")
     assert "21 of 27 dealers" in home.text
     assert "112" in home.text
-    followed = client.get("/operator", follow_redirects=False)
-    assert followed.status_code == 302
-    assert followed.headers["location"] == "/?view=check"
-    check = client.get("/?view=check").text
-    assert "Today's check" in check
+    for old in ("/operator", "/?view=check"):
+        followed = client.get(old, follow_redirects=False)
+        assert followed.status_code == 301
+        assert followed.headers["location"] == "/check"
+    check = client.get("/check").text
+    assert "<h1>Today's check</h1>" in check
     assert "Nothing is waiting for a person to confirm" in check
+    assert "Dealer results in this run" in check
 
 
 def test_defaults_split_fit_and_might_on_the_statewide_run() -> None:
@@ -174,12 +179,37 @@ def test_lowest_and_highest_are_the_ends_of_the_cash_prices() -> None:
     )
 
 
-def test_theme_tokens_meet_body_text_contrast() -> None:
-    # #142030 on #f3f5f8 and #e6ecf3 on #0f151d, the buyer page body pairs.
-    assert _contrast((0x14, 0x20, 0x30), (0xF3, 0xF5, 0xF8)) >= 4.5
-    assert _contrast((0xE6, 0xEC, 0xF3), (0x0F, 0x15, 0x1D)) >= 4.5
-    assert _contrast((0x17, 0x78, 0x4D), (0xE0, 0xF2, 0xE9)) >= 4.5
-    assert _contrast((0x5B, 0xD3, 0x9B), (0x14, 0x30, 0x2A)) >= 4.5
+CSS = Path(__file__).parents[1] / "src/carshop/web/static/app.css"
+
+
+def _themes() -> tuple[dict[str, str], dict[str, str]]:
+    blocks = re.findall(r"(:root[^{]*)\{([^{}]*)\}", CSS.read_text())
+    light = dict(re.findall(r"(--[\w-]+):\s*([^;]+);", blocks[0][1]))
+    dark = next(dict(re.findall(r"(--[\w-]+):\s*([^;]+);", b)) for s, b in blocks if "dark" in s)
+    return light, dark
+
+
+def _rgb(value: str, under: tuple[int, int, int]) -> tuple[int, int, int]:
+    value = value.strip()
+    if value.startswith("#"):
+        return int(value[1:3], 16), int(value[3:5], 16), int(value[5:7], 16)
+    r, g, b, a = (float(p) for p in re.findall(r"[\d.]+", value))
+    return tuple(round(c * a + u * (1 - a)) for c, u in zip((r, g, b), under, strict=True))  # type: ignore[return-value]
+
+
+def test_theme_tokens_meet_aa_contrast_in_both_themes() -> None:
+    pairs = [
+        ("--ink", "--bg"), ("--ink", "--surface"), ("--muted", "--bg"), ("--muted", "--surface"),
+        ("--accent", "--surface"), ("--ok-fg", "--ok-bg"), ("--warn-fg", "--warn-bg"),
+        ("--bad-fg", "--bad-bg"), ("--none-fg", "--none-bg"), ("--model", "--model-soft"),
+        ("--good", "--good-soft"),
+    ]  # fmt: skip
+    for theme in _themes():
+        surface = _rgb(theme["--surface"], (0, 0, 0))
+        for fg, bg in pairs:
+            back = _rgb(theme[bg], surface)
+            ratio = _contrast(_rgb(theme[fg], back), back)
+            assert ratio >= 4.5, (fg, bg, round(ratio, 2))
 
 
 def _contrast(ink: tuple[int, int, int], surface: tuple[int, int, int]) -> float:

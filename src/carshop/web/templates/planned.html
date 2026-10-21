@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ dealer.name if dealer else page.title }}{% endblock %}
+{% block heading %}{{ dealer.name if dealer else page.title }}{% endblock %}
+{% block content %}
+<section class="panel p-6 max-w-3xl">
+  <div class="eyebrow">Coming in {{ page.step }}</div>
+  <h2 class="text-2xl mt-1">{{ dealer.name ~ ' · ' ~ dealer.city if dealer else page.title }}</h2>
+  <p class="muted mt-2">{{ page.lead }}</p>
+  {% if page.bullets %}
+  <ul class="mt-4 space-y-2 list-disc pl-5">
+    {% for b in page.bullets %}<li>{{ b }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  <p class="mt-5 text-sm">Until then:
+    {% for label, href in page.links %}<a class="link" href="{{ href }}">{{ label }}</a>{{ ', ' if not loop.last }}{% endfor %}.
+  </p>
+</section>
+{% endblock %}

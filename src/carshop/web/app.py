@@ -12,11 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 from sqlalchemy import Connection, Engine, select
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from carshop import __version__
 from carshop.catalog.features import FEATURES
@@ -28,9 +30,36 @@ from carshop.storage import migrate, repos
 from carshop.storage import schema as s
 from carshop.storage.db import make_engine, read_conn
 from carshop.util import git_sha
-from carshop.web import views
+from carshop.web import search, shell, views
 
 _HERE = Path(__file__).parent
+
+# Menu pages whose full build lands in a later delivery step (requirements-web-ui.md §12).
+# They render inside the shell so no menu item is a dead link.
+PLANNED: dict[str, dict[str, Any]] = {
+    "pipeline": {
+        "title": "Live pipeline",
+        "step": "step 5",
+        "lead": "Watch each daily run move through the agents: collect, extract, validate, enrich, store, compare, notify.",
+        "bullets": [
+            "Run bar with elapsed time, dealers finished, and model spend against the breaker.",
+            "The agent graph, with hand-offs animated from real pipeline events only.",
+            "A stage funnel, one row per dealer branch, and the event log.",
+        ],
+        "links": [("Runs & digest", "/runs"), ("Data health & coverage", "/health")],
+    },
+    "architecture": {
+        "title": "How it works",
+        "step": "step 5",
+        "lead": "The system explained from the code itself: agents, layers, and the rules that never bend.",
+        "bullets": [
+            "Unknown is never No. A missing price stays empty, never guessed.",
+            "A dealer we could not read is a gap, not zero. A car that disappears is not a sale.",
+            "Every yes or no about a package quotes the dealer's page. No bot evasion.",
+        ],
+        "links": [("Today's check", "/check")],
+    },
+}
 
 
 def create_app(settings: Settings | None = None, engine: Engine | None = None) -> FastAPI:
@@ -71,28 +100,89 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             return repos.get_run(c, run_id)
         return repos.latest_published_run(c)
 
+    def _age(ts: str | None) -> str:
+        return views.age_label(ts, st.schedule_tz)
+
     def _ctx(
         request: Request, c: Connection, run: dict[str, Any] | None, **extra: Any
     ) -> dict[str, Any]:
         runs = repos.list_runs(c, 30)
         coverage = repos.coverage(c)
-        pending = repos.pending_review_count(c, str(run["run_id"])) if run else 0
+        path = request.url.path
+        status = shell.status(c, run, model_enabled=st.model_enabled, age=_age)
+        item = shell.item_for(path)
+        frame = {
+            "menu": shell.menu(path, request.query_params.get("run_id"), status),
+            "status": status,
+            "item": item,
+            "crumb": shell.crumb(path, request.headers.get("referer")),
+            "run_scoped": bool(item and item.run_scoped),
+            "exports": bool(item and item.exports),
+        }
         return {
             "request": request, "run": run, "runs": runs, "coverage_summary": views.summarize_coverage(coverage),
-            "pending": pending, "settings": st, "model_enabled": st.model_enabled, **extra,
+            "pending": status["pending"], "settings": st, "model_enabled": st.model_enabled, "shell": frame, **extra,
         }  # fmt: skip
 
     # ------------------------------------------------------------------ pages
     @app.get("/", response_class=HTMLResponse)
-    def finder(request: Request) -> Response:
+    def finder(request: Request, view: str | None = None) -> Response:
+        if view == "check":
+            return RedirectResponse(url="/check", status_code=301)
         with conn() as c:
             payload = views.buyer_payload(c, st.registry_dir)
-            return render("finder.html", {"request": request, "payload": payload})
+            return render("finder.html", _ctx(request, c, None, payload=payload))
 
     @app.get("/operator")
     def operator_home() -> RedirectResponse:
-        """Old overview address. The home screen now holds both options."""
-        return RedirectResponse(url="/?view=check", status_code=302)
+        """Old overview address."""
+        return RedirectResponse(url="/check", status_code=301)
+
+    @app.get("/check", response_class=HTMLResponse)
+    def check(request: Request, run_id: str | None = None) -> Response:
+        with conn() as c:
+            run = _latest(c, run_id)
+            payload = views.buyer_payload(c, st.registry_dir)
+            dealers: list[dict[str, Any]] = []
+            price_events: list[dict[str, Any]] = []
+            if run is not None:
+                rid = str(run["run_id"])
+                dealers = views.check_dealers(c, rid, prefs)
+                price_events = repos.price_events_for_run(c, rid)
+            all_failed = bool(dealers) and not any(
+                d["status"] in ("REPORTED", "PARTIAL") for d in dealers
+            )
+            return render(
+                "check.html",
+                _ctx(request, c, run, payload=payload, dealers=dealers,
+                     price_events=price_events, all_failed=all_failed),
+            )  # fmt: skip
+
+    def _planned(request: Request, page: str, **extra: Any) -> Response:
+        with conn() as c:
+            return render("planned.html", _ctx(request, c, None, page=PLANNED[page], **extra))
+
+    @app.get("/pipeline", response_class=HTMLResponse)
+    def pipeline_page(request: Request) -> Response:
+        return _planned(request, "pipeline")
+
+    @app.get("/architecture", response_class=HTMLResponse)
+    def architecture_page(request: Request) -> Response:
+        return _planned(request, "architecture")
+
+    @app.get("/dealers", response_class=HTMLResponse)
+    def dealers_page(request: Request) -> Response:
+        with conn() as c:
+            directory = views.dealer_directory(c)
+            return render("dealers.html", _ctx(request, c, None, directory=directory))
+
+    @app.get("/dealers/{dealer_id}", response_class=HTMLResponse)
+    def dealer_page(request: Request, dealer_id: str, run_id: str | None = None) -> Response:
+        with conn() as c:
+            detail = views.dealer_detail(c, dealer_id, prefs, run_id)
+            if detail is None:
+                raise HTTPException(404, "That dealer is not in the registry.")
+            return render("dealer.html", _ctx(request, c, None, d=detail))
 
     @app.get("/inventory", response_class=HTMLResponse)
     def inventory(request: Request, run_id: str | None = None) -> Response:
@@ -266,9 +356,9 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             )
 
     @app.get("/health", response_class=HTMLResponse)
-    def health(request: Request) -> Response:
+    def health(request: Request, run_id: str | None = None) -> Response:
         with conn() as c:
-            run = repos.latest_published_run(c)
+            run = _latest(c, run_id)
             cov = repos.coverage(c)
             grid = views.health_grid(c, 30)
             attempts = []
@@ -304,9 +394,9 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             )
 
     @app.get("/review", response_class=HTMLResponse)
-    def review(request: Request) -> Response:
+    def review(request: Request, run_id: str | None = None) -> Response:
         with conn() as c:
-            run = repos.latest_published_run(c)
+            run = _latest(c, run_id)
             items = repos.open_review_items(c)
             audits = [
                 dict(r._mapping)
@@ -372,6 +462,32 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     def api_trends(days: int = 90) -> JSONResponse:
         with conn() as c:
             return JSONResponse(views.trend_series(c, days))
+
+    @app.get("/api/search")
+    def api_search(q: str = "", limit: int = 6) -> JSONResponse:
+        with conn() as c:
+            return JSONResponse(search.search(c, q, max(1, min(limit, 50))))
+
+    @app.get("/search", response_class=HTMLResponse)
+    def search_page(request: Request, q: str = "") -> Response:
+        with conn() as c:
+            results = search.search(c, q, 50)
+            return render("search.html", _ctx(request, c, None, q=q, results=results))
+
+    @app.get("/api/status")
+    def api_status() -> JSONResponse:
+        """Sidebar run card. Polled every 30 s, every 5 s while a run is RUNNING."""
+        with conn() as c:
+            return JSONResponse(shell.status(c, None, model_enabled=st.model_enabled, age=_age))
+
+    @app.exception_handler(StarletteHTTPException)
+    async def not_found(request: Request, exc: StarletteHTTPException) -> Response:
+        path = request.url.path
+        if exc.status_code != 404 or path.startswith(("/api", "/static", "/export")):
+            return await http_exception_handler(request, exc)
+        with conn() as c:
+            ctx = _ctx(request, c, None, detail=exc.detail)
+        return templates.TemplateResponse(request, "not_found.html", ctx, status_code=404)
 
     @app.get("/api/health")
     def api_health() -> JSONResponse:

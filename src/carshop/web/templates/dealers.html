@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Dealers{% endblock %}
+{% block heading %}Dealers{% endblock %}
+{% macro result_chip(r) -%}
+  <span class="chip {{ {'REPORTED': 'c-reported', 'PARTIAL': 'c-partial', 'NOT_REPORTED': 'c-not_reported', 'NO_SOURCE': 'c-no_source'}.get(r.status, 'c-unknown') }}">{{ r.result }}</span>
+{%- endmacro %}
+{% macro dealer_rows(rows) -%}
+  {% for r in rows %}
+  <tr class="border-t" data-city="{{ r.city }}" data-result="{{ r.result }}">
+    <td data-sort="{{ r.name }}"><a class="link font-semibold" href="/dealers/{{ r.dealer_id }}">{{ r.name }}</a></td>
+    <td data-sort="{{ r.city }}">{{ r.city }}</td>
+    <td class="text-right tabular-nums" data-sort="{{ r.cars if r.cars is not none else -1 }}">{% if r.cars is none %}<span class="muted" title="Not read in its latest run, so the count is unknown, not zero">—</span>{% else %}{{ r.cars }}{% endif %}</td>
+    <td class="text-right tabular-nums" data-sort="{{ r.floor_cents if r.floor_cents is not none else 99999999999 }}">{% if r.floor_vin %}<a class="link" href="/vin/{{ r.floor_vin }}">{{ r.floor_cents | money }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+    <td class="tabular-nums" data-sort="{{ r.last_success or '' }}">{{ r.last_success or '—' }}</td>
+    <td data-sort="{{ r.result }}">{{ result_chip(r) }}{% if r.date %}<div class="text-[11px] muted mt-0.5">{{ r.date }}</div>{% endif %}</td>
+  </tr>
+  {% endfor %}
+{%- endmacro %}
+{% block content %}
+{% set rows = directory.active %}
+<section class="panel p-5">
+  <div class="flex flex-wrap items-end gap-3 justify-between">
+    <div>
+      <h2 class="text-lg">Every Texas BMW dealer we check</h2>
+      <p class="muted text-sm mt-1">{{ rows | length }} dealers on the BMW locator. Cars and lowest price come from each dealer's newest published check. A dash under Cars means we could not read that dealer, not that it has none; a dash under Lowest price means no car there shows a cash price.</p>
+    </div>
+    <form class="flex flex-wrap gap-2 items-center text-xs" id="dealerFilters" onsubmit="return false">
+      <label for="fCity" class="muted">City</label>
+      <select id="fCity"><option value="">All cities</option>{% for c in rows | map(attribute='city') | unique | sort %}<option>{{ c }}</option>{% endfor %}</select>
+      <label for="fResult" class="muted">Last result</label>
+      <select id="fResult"><option value="">Any result</option>{% for c in rows | map(attribute='result') | unique | sort %}<option>{{ c }}</option>{% endfor %}</select>
+    </form>
+  </div>
+  <div class="overflow-x-auto mt-4">
+    <table class="compact w-full text-sm" id="dealerTable">
+      <thead class="text-left text-[11px] uppercase tracking-wider muted">
+        <tr>
+          <th aria-sort="ascending"><button type="button" class="linkish" data-col="0">Dealer</button></th>
+          <th><button type="button" class="linkish" data-col="1">City</button></th>
+          <th class="text-right"><button type="button" class="linkish" data-col="2" data-num>Cars</button></th>
+          <th class="text-right"><button type="button" class="linkish" data-col="3" data-num>Lowest price</button></th>
+          <th><button type="button" class="linkish" data-col="4">Last good read</button></th>
+          <th><button type="button" class="linkish" data-col="5">Last result</button></th>
+        </tr>
+      </thead>
+      <tbody>{{ dealer_rows(rows) }}</tbody>
+    </table>
+  </div>
+  <p class="muted text-xs mt-3" id="dealerCount" aria-live="polite"></p>
+</section>
+{% if directory.inactive %}
+<details class="panel p-5">
+  <summary class="cursor-pointer font-semibold">No longer on the BMW locator · {{ directory.inactive | length }}</summary>
+  <div class="overflow-x-auto mt-3">
+    <table class="compact w-full text-sm">
+      <thead class="text-left text-[11px] uppercase tracking-wider muted"><tr><th>Dealer</th><th>City</th><th class="text-right">Cars</th><th class="text-right">Lowest price</th><th>Last good read</th><th>Last result</th></tr></thead>
+      <tbody>{{ dealer_rows(directory.inactive) }}</tbody>
+    </table>
+  </div>
+</details>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var table = document.getElementById('dealerTable'), body = table.tBodies[0];
+  var city = document.getElementById('fCity'), result = document.getElementById('fResult'), count = document.getElementById('dealerCount');
+  function filter() {
+    var shown = 0;
+    [].forEach.call(body.rows, function (tr) {
+      var ok = (!city.value || tr.dataset.city === city.value) && (!result.value || tr.dataset.result === result.value);
+      tr.hidden = !ok; if (ok) shown++;
+    });
+    count.textContent = shown === body.rows.length ? '' : shown + ' of ' + body.rows.length + ' dealers shown';
+  }
+  city.addEventListener('change', filter);
+  result.addEventListener('change', filter);
+  table.tHead.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-col]'); if (!b) return;
+    var th = b.parentElement, col = +b.dataset.col, num = b.hasAttribute('data-num');
+    var dir = th.getAttribute('aria-sort') === 'ascending' ? -1 : 1;
+    table.tHead.querySelectorAll('th').forEach(function (h) { h.removeAttribute('aria-sort'); });
+    th.setAttribute('aria-sort', dir === 1 ? 'ascending' : 'descending');
+    var rows = [].slice.call(body.rows);
+    rows.sort(function (a, b2) {
+      var x = a.cells[col].dataset.sort, y = b2.cells[col].dataset.sort;
+      return dir * (num ? (+x) - (+y) : x.localeCompare(y));
+    });
+    rows.forEach(function (r) { body.appendChild(r); });
+  });
+})();
+</script>
+{% endblock %}

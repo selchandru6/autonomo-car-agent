@@ -108,6 +108,173 @@ def load_units(conn: Connection, run_id: str, prefs: Preferences) -> list[Unit]:
     return units
 
 
+def check_dealers(conn: Connection, run_id: str, prefs: Preferences) -> list[Row]:
+    """One row per dealer in a run: its result, pages, raw and eligible counts, and floor."""
+    floors: dict[str, tuple[int, str]] = {}
+    units: dict[str, int] = defaultdict(int)
+    for u in load_units(conn, run_id, prefs):
+        dealer = str(u.row["dealer_id"])
+        units[dealer] += 1
+        cents = u.row["comparison_price_cents"]
+        if cents is not None and (dealer not in floors or int(cents) < floors[dealer][0]):
+            floors[dealer] = (int(cents), u.vin)
+    out: list[Row] = []
+    for d in repos.dealer_runs_for_run(conn, run_id):
+        floor = floors.get(str(d["dealer_id"]))
+        out.append(
+            {
+                **d,
+                "units": units.get(str(d["dealer_id"]), 0),
+                "floor_cents": floor[0] if floor else None,
+                "floor_vin": floor[1] if floor else None,
+            }
+        )
+    order = {"NOT_REPORTED": 0, "PARTIAL": 1, "NO_SOURCE": 2, "REPORTED": 3}
+    out.sort(key=lambda r: (order.get(str(r["status"]), 9), str(r["name"])))
+    return out
+
+
+BUYER_RESULT = {
+    "REPORTED": "Checked",
+    "PARTIAL": "Partly checked",
+    "NOT_REPORTED": "Couldn't read the website",
+    "NO_SOURCE": "Website not on file yet",
+}
+_READ = ("REPORTED", "PARTIAL")
+
+
+def _latest_per_dealer(series: list[Row]) -> dict[str, Row]:
+    """series_by_dealer is oldest first, so the last row per dealer is its newest published result."""
+    return {str(r["dealer_id"]): r for r in series}
+
+
+def dealer_directory(conn: Connection) -> dict[str, list[Row]]:
+    """Every registry dealer with its newest published result in buyer words (web-ui 8.3)."""
+    latest = _latest_per_dealer(repos.series_by_dealer(conn, 3650))
+    active: list[Row] = []
+    inactive: list[Row] = []
+    for d in repos.coverage(conn):
+        r = latest.get(str(d["dealer_id"]))
+        status = str(r["status"]) if r else None
+        read = status in _READ
+        row = {
+            "dealer_id": d["dealer_id"],
+            "name": d["name"],
+            "city": d["city"],
+            "status": status,
+            "result": BUYER_RESULT.get(status or "", "Not checked yet"),
+            "cars": int(r["eligible_count"] or 0) if r and read else None,
+            "floor_cents": r["floor_cents"] if r and read else None,
+            "floor_vin": r["floor_vin"] if r and read else None,
+            "last_success": d["last_success_date"],
+            "run_id": r["run_id"] if r else None,
+            "date": r["snapshot_date"] if r else None,
+        }
+        (active if d["active"] else inactive).append(row)
+    active.sort(key=lambda x: str(x["name"]).lower())
+    inactive.sort(key=lambda x: str(x["name"]).lower())
+    return {"active": active, "inactive": inactive}
+
+
+def dealer_detail(
+    conn: Connection, dealer_id: str, prefs: Preferences, run_id: str | None = None
+) -> Row | None:
+    dealer = (
+        conn.execute(select(s.dealers).where(s.dealers.c.dealer_id == dealer_id)).mappings().first()
+    )
+    if dealer is None:
+        return None
+    series = repos.series_by_dealer(conn, 3650)
+    mine = [r for r in series if r["dealer_id"] == dealer_id]
+    latest = mine[-1] if mine else None
+    shown = run_id or (str(latest["run_id"]) if latest else None)
+
+    window = repos.series_by_dealer(conn, 30)
+    dates = sorted({str(r["snapshot_date"]) for r in window})
+    by_date = {str(r["snapshot_date"]): r for r in window if r["dealer_id"] == dealer_id}
+    strip = [
+        {"date": day, "status": by_date[day]["status"] if day in by_date else None,
+         "reason": by_date[day]["reason_code"] if day in by_date else None,
+         "run_id": by_date[day]["run_id"] if day in by_date else None,
+         "cars": by_date[day]["eligible_count"] if day in by_date else None}
+        for day in dates
+    ]  # fmt: skip
+
+    per_day = {str(r["snapshot_date"]): r for r in mine}
+    chart_dates = sorted(per_day)
+    chart = {
+        "dates": chart_dates,
+        "floor": [
+            int(per_day[d]["floor_cents"]) / 100
+            if per_day[d]["status"] in _READ and per_day[d]["floor_cents"] is not None
+            else None
+            for d in chart_dates
+        ],
+        "stock": [
+            int(per_day[d]["eligible_count"] or 0) if per_day[d]["status"] in _READ else None
+            for d in chart_dates
+        ],
+    }
+
+    units: list[Unit] = []
+    if latest is not None and latest["status"] in _READ:
+        units = [
+            u
+            for u in load_units(conn, str(latest["run_id"]), prefs)
+            if u.row["dealer_id"] == dealer_id
+        ]
+        units.sort(
+            key=lambda u: (
+                u.row["comparison_price_cents"] is None,
+                u.row["comparison_price_cents"] or 0,
+            )
+        )
+
+    attempts: list[Row] = []
+    robots: Row | None = None
+    if shown:
+        attempts = [
+            dict(r)
+            for r in conn.execute(
+                select(s.fetch_attempts)
+                .where(
+                    s.fetch_attempts.c.run_id == shown, s.fetch_attempts.c.dealer_id == dealer_id
+                )
+                .order_by(s.fetch_attempts.c.fetched_at)
+            ).mappings()
+        ]
+        rob = (
+            conn.execute(
+                select(s.robots_snapshots)
+                .where(
+                    s.robots_snapshots.c.run_id == shown,
+                    s.robots_snapshots.c.dealer_id == dealer_id,
+                )
+                .order_by(s.robots_snapshots.c.fetched_at.desc())
+            )
+            .mappings()
+            .first()
+        )
+        robots = dict(rob) if rob else None
+
+    success = [r for r in mine if r["status"] == "REPORTED"]
+    return {
+        "dealer": dict(dealer),
+        "path_prefixes": json.loads(dealer["path_prefixes"] or "[]"),
+        "latest": latest,
+        "result": BUYER_RESULT.get(str(latest["status"]), "Not checked yet")
+        if latest
+        else "Not checked yet",
+        "last_success": success[-1]["snapshot_date"] if success else None,
+        "units": units,
+        "strip": strip,
+        "chart": chart,
+        "shown_run": shown,
+        "attempts": attempts,
+        "robots": robots,
+    }
+
+
 def score(u: Unit, prefs: Preferences) -> None:
     """Preference fit and evidence confidence are separate (F20). UNKNOWN never matches."""
     w = prefs.weights

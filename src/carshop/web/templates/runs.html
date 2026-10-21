@@ -4,23 +4,23 @@
 {% block content %}
 
 <section class="grid xl:grid-cols-3 gap-6">
-  <div class="glass rounded-2xl p-5 xl:col-span-2">
+  <div class="panel p-5 xl:col-span-2">
     <h2 class="font-semibold">Run history</h2>
-    <p class="text-xs text-slate-400 mt-1">Every run writes a row before it starts. Only PUBLISHED runs feed the screens. Click a run to view its inventory.</p>
+    <p class="text-xs muted mt-1">Every run writes a row before it starts. Only PUBLISHED runs feed the screens. Click a run to view its inventory.</p>
     <div class="overflow-x-auto mt-3 max-h-[60vh]">
       <table class="w-full text-sm compact">
-        <thead class="sticky-head text-left text-[11px] uppercase tracking-wider text-slate-400"><tr><th>Run</th><th>Date</th><th>Trigger</th><th>Status</th><th>Started (UTC)</th><th>Duration</th><th>Model</th><th>Code</th><th>Rerun of</th></tr></thead>
+        <thead class="sticky-head text-left text-[11px] uppercase tracking-wider muted"><tr><th>Run</th><th>Date</th><th>Trigger</th><th>Status</th><th>Started (UTC)</th><th>Duration</th><th>Model</th><th>Code</th><th>Rerun of</th></tr></thead>
         <tbody>
           {% for r in all_runs %}
-          <tr class="border-t border-slate-800/70 row-link {% if run and r.run_id == run.run_id %}bg-sky-950/30{% endif %}">
-            <td><a href="/inventory?run_id={{ r.run_id }}" class="font-mono text-[11px] text-sky-300 hover:underline">{{ r.run_id }}</a></td>
+          <tr class="border-t row-link {% if run and r.run_id == run.run_id %}row-current{% endif %}">
+            <td><a href="/inventory?run_id={{ r.run_id }}" class="font-mono text-[11px] link hover:underline">{{ r.run_id }}</a></td>
             <td>{{ r.snapshot_date }}</td><td class="text-xs">{{ r.trigger }}</td>
-            <td><span class="badge {{ 'b-yes' if r.status == 'PUBLISHED' else 'b-partial' if r.status == 'RUNNING' else 'b-no' }}">{{ r.status }}</span></td>
-            <td class="text-xs text-slate-400">{{ r.started_at }}</td>
-            <td class="text-xs tabular-nums text-slate-400">{% if r.ended_at %}{{ ((r.ended_at[11:13] | int) * 3600 + (r.ended_at[14:16] | int) * 60 + (r.ended_at[17:19] | int)) - ((r.started_at[11:13] | int) * 3600 + (r.started_at[14:16] | int) * 60 + (r.started_at[17:19] | int)) }}s{% else %}—{% endif %}</td>
-            <td class="text-xs text-slate-400">{{ r.model_status }}{% if r.model_spend_usd %} · ${{ '%.3f' % r.model_spend_usd }}{% endif %}{% if r.label %} · {{ r.label }}{% endif %}</td>
-            <td class="text-[11px] text-slate-500 font-mono">{{ r.git_sha }} · {{ r.parser_version }} · cfg {{ r.config_version }}</td>
-            <td class="text-[11px] text-slate-500 font-mono">{{ r.rerun_of_run_id or '—' }}</td>
+            <td><span class="chip {{ 'c-yes' if r.status == 'PUBLISHED' else 'c-partial' if r.status == 'RUNNING' else 'c-no' }}">{{ r.status }}</span></td>
+            <td class="text-xs muted">{{ r.started_at }}</td>
+            <td class="text-xs tabular-nums muted">{% if r.ended_at %}{{ ((r.ended_at[11:13] | int) * 3600 + (r.ended_at[14:16] | int) * 60 + (r.ended_at[17:19] | int)) - ((r.started_at[11:13] | int) * 3600 + (r.started_at[14:16] | int) * 60 + (r.started_at[17:19] | int)) }}s{% else %}—{% endif %}</td>
+            <td class="text-xs muted">{{ r.model_status }}{% if r.model_spend_usd %} · ${{ '%.3f' % r.model_spend_usd }}{% endif %}{% if r.label %} · {{ r.label }}{% endif %}</td>
+            <td class="text-[11px] muted font-mono">{{ r.git_sha }} · {{ r.parser_version }} · cfg {{ r.config_version }}</td>
+            <td class="text-[11px] muted font-mono">{{ r.rerun_of_run_id or '—' }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -28,27 +28,27 @@
     </div>
   </div>
 
-  <div class="glass rounded-2xl p-5">
+  <div class="panel p-5">
     <h2 class="font-semibold">Operator actions</h2>
-    <p class="text-xs text-slate-400 mt-1">The web screen is read-only. Runs are started from the shell (or cron at 06:00 America/Chicago).</p>
-    <pre class="mt-3 text-xs bg-slate-950 border border-slate-800 rounded-xl p-3 overflow-auto">uv run carshop run --notify
+    <p class="text-xs muted mt-1">The web screen is read-only. Runs are started from the shell (or cron at 06:00 America/Chicago).</p>
+    <pre class="mt-3 text-xs code-block">uv run carshop run --notify
 uv run carshop run --dealer bmw-austin
 uv run carshop run --trigger catchup --date 2026-10-18
 uv run carshop backup && uv run carshop prune</pre>
     <h3 class="font-semibold mt-5">Notification log</h3>
-    <ul class="mt-2 text-xs divide-y divide-slate-800/70">
+    <ul class="mt-2 text-xs divide-y">
       {% for n in notifications %}
-      <li class="py-2"><div class="flex items-center gap-2"><span class="badge {{ 'b-yes' if n.sent_at else 'b-no' }}">{{ n.provider_status or ('sent' if n.sent_at else 'failed') }}</span><span>{{ n.channel }} → {{ n.recipient }}</span><span class="ml-auto text-slate-500">{{ (n.sent_at or n.created_at) | age }}</span></div><div class="font-mono text-[11px] text-slate-500">{{ n.run_id }} · {{ n.event_key }} · {{ n.attempts }} attempt(s){% if n.last_error %} · <span class="text-rose-300">{{ n.last_error }}</span>{% endif %}</div></li>
-      {% else %}<li class="py-4 text-slate-500">No digests sent yet.</li>{% endfor %}
+      <li class="py-2"><div class="flex items-center gap-2"><span class="chip {{ 'c-yes' if n.sent_at else 'c-no' }}">{{ n.provider_status or ('sent' if n.sent_at else 'failed') }}</span><span>{{ n.channel }} → {{ n.recipient }}</span><span class="ml-auto muted">{{ (n.sent_at or n.created_at) | age }}</span></div><div class="font-mono text-[11px] muted">{{ n.run_id }} · {{ n.event_key }} · {{ n.attempts }} attempt(s){% if n.last_error %} · <span class="bad">{{ n.last_error }}</span>{% endif %}</div></li>
+      {% else %}<li class="py-4 muted">No digests sent yet.</li>{% endfor %}
     </ul>
   </div>
 </section>
 
 {% if digest %}
-<section class="glass rounded-2xl p-5">
-  <div class="flex items-baseline justify-between"><h2 class="font-semibold">Digest for the latest published run</h2><span class="text-[11px] text-slate-500 font-mono">content hash {{ digest.content_hash[:16] }}</span></div>
-  <div class="text-sm text-slate-300 mt-2 font-medium">{{ digest.subject }}</div>
-  <pre class="mt-3 text-xs bg-slate-950 border border-slate-800 rounded-xl p-4 overflow-auto whitespace-pre-wrap leading-relaxed">{{ digest.body }}</pre>
+<section class="panel p-5">
+  <div class="flex items-baseline justify-between"><h2 class="font-semibold">Digest for the latest published run</h2><span class="text-[11px] muted font-mono">content hash {{ digest.content_hash[:16] }}</span></div>
+  <div class="text-sm mt-2 font-medium">{{ digest.subject }}</div>
+  <pre class="mt-3 text-xs code-block p-4 whitespace-pre-wrap leading-relaxed">{{ digest.body }}</pre>
 </section>
 {% endif %}
 {% endblock %}

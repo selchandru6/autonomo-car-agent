@@ -1,140 +1,189 @@
 <!doctype html>
-<html lang="en" class="h-full">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script>
-    try {
-      var savedTheme = localStorage.getItem("x5finder.theme");
-      if (savedTheme === "light" || savedTheme === "dark") document.documentElement.setAttribute("data-theme", savedTheme);
-    } catch (e) {}
+    (function () {
+      var root = document.documentElement, side = null;
+      try {
+        var savedTheme = localStorage.getItem("x5finder.theme");
+        if (savedTheme === "light" || savedTheme === "dark") root.setAttribute("data-theme", savedTheme);
+        side = localStorage.getItem("x5finder.sidebar");
+      } catch (e) {}
+      window.x5AutoCollapsed = function () {
+        var w = window.innerWidth;
+        return w < 1280 || (location.pathname === "/" && w < 1440);
+      };
+      root.classList.toggle("sb-collapsed", side === "collapsed" || (side !== "expanded" && window.x5AutoCollapsed()));
+    })();
   </script>
-  <title>{% block title %}AI car shopping{% endblock %} · X5 xDrive40i Texas monitor</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>{% block title %}{{ shell.item.label if shell.item else 'Texas X5 Finder' }}{% endblock %} · Texas X5 Finder</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;600&display=swap">
+  <link rel="stylesheet" href="/static/app.css">
+  {% block head %}{% endblock %}
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script>
+    tailwind.config = { theme: { extend: { fontFamily: {
+      sans: ['DM Sans', 'ui-sans-serif', 'system-ui'], mono: ['JetBrains Mono', 'ui-monospace', 'monospace'] } } } };
+  </script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
-  <link rel="stylesheet" href="/static/app.css">
   <script>
-    tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui'] } } } };
-    const CHART_THEME = {
-      backgroundColor: 'transparent',
-      textStyle: { color: '#cbd5e1' },
-      color: ['#38bdf8', '#a78bfa', '#34d399', '#fbbf24', '#f472b6', '#fb923c', '#60a5fa', '#4ade80'],
-      axisLine: { lineStyle: { color: '#334155' } },
-    };
-    function mkChart(id, option) {
+    const tok = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const usd = v => v == null ? '—' : '$' + Math.round(v).toLocaleString();
+    const x5Charts = [];
+    function themed(o) {
+      const ink = tok('--ink'), muted = tok('--muted'), line = tok('--line'), strong = tok('--line-strong');
+      const mono = tok('--font-data'), ui = tok('--font-ui');
+      o.backgroundColor = 'transparent';
+      o.color = [1, 2, 3, 4, 5, 6, 7, 8].map(i => tok('--chart-' + i));
+      o.textStyle = Object.assign({}, o.textStyle, { color: ink, fontFamily: ui });
+      const axes = a => [].concat(a || []).forEach(x => {
+        x.axisLabel = Object.assign({}, x.axisLabel, { color: muted, fontFamily: mono });
+        x.axisLine = Object.assign({}, x.axisLine, { lineStyle: Object.assign({}, (x.axisLine || {}).lineStyle, { color: strong }) });
+        x.splitLine = Object.assign({}, x.splitLine, { lineStyle: Object.assign({}, (x.splitLine || {}).lineStyle, { color: line }) });
+      });
+      axes(o.xAxis); axes(o.yAxis);
+      [].concat(o.legend || []).forEach(l => {
+        l.textStyle = Object.assign({}, l.textStyle, { color: muted });
+        l.pageTextStyle = { color: muted }; l.pageIconColor = tok('--accent'); l.pageIconInactiveColor = strong;
+      });
+      if (o.tooltip) Object.assign(o.tooltip, { backgroundColor: tok('--surface'), borderColor: strong, textStyle: { color: ink } });
+      [].concat(o.series || []).forEach(s => { if (s.type === 'pie') s.label = Object.assign({}, s.label, { color: ink }); });
+      return o;
+    }
+    // `build` may be an option object or a function returning one; a function lets series
+    // colors read tokens again when the theme changes.
+    function mkChart(id, build) {
       const el = document.getElementById(id); if (!el) return null;
+      const make = typeof build === 'function' ? build : () => build;
       const c = echarts.init(el, null, { renderer: 'canvas' });
-      option.backgroundColor = 'transparent';
-      option.textStyle = Object.assign({ color: '#cbd5e1' }, option.textStyle || {});
-      option.color = option.color || CHART_THEME.color;
-      c.setOption(option);
+      const draw = () => c.setOption(themed(make()), true);
+      draw();
+      x5Charts.push(draw);
       window.addEventListener('resize', () => c.resize());
       return c;
     }
-    const usd = v => v == null ? '—' : '$' + Math.round(v).toLocaleString();
+    window.addEventListener('x5finder-theme', () => x5Charts.forEach(draw => draw()));
   </script>
 </head>
-<body class="h-full text-slate-200 antialiased">
-<div class="min-h-full flex">
-  <aside class="w-64 shrink-0 hidden lg:flex flex-col border-r border-slate-800/80 bg-slate-950/60">
-    <div class="px-5 py-5 border-b border-slate-800/80">
-      <div class="flex items-center gap-3">
-        <div class="h-9 w-9 rounded-xl bg-gradient-to-br from-sky-400 to-indigo-600 grid place-items-center font-black text-slate-950">X5</div>
-        <div>
-          <div class="font-semibold leading-tight">AI car shopping</div>
-          <div class="text-[11px] text-slate-400">2026 X5 xDrive40i · Texas</div>
-        </div>
-      </div>
-    </div>
-    {% set path = request.url.path %}
-    <nav class="flex-1 py-3 text-sm">
-      {% for href, label, icon in [
-        ('/', 'Home', '◎'), ('/?view=check', "Today's check", '▣'), ('/inventory', 'Eligible', '▤'), ('/catalog', 'All inventory', '☰'), ('/shortlist', 'Shortlist', '★'),
-        ('/trends', 'Price & stock trends', '∿'), ('/health', 'Data health & coverage', '♥'),
-        ('/review', 'Review queue', '✓'), ('/runs', 'Runs & digest', '⟳')] %}
-      <a href="{{ href }}" class="flex items-center gap-3 px-5 py-2.5 text-slate-300 hover:bg-slate-800/60 {% if path == href %}nav-active{% endif %}">
-        <span class="w-5 text-center text-slate-500">{{ icon }}</span><span>{{ label }}</span>
-        {% if href == '/review' and pending %}<span class="ml-auto badge b-partial">{{ pending }}</span>{% endif %}
+{% set s = shell.status %}
+<body data-page="{{ request.url.path }}">
+<a class="skip" href="#content">Skip to content</a>
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar" aria-label="Sidebar">
+    <a class="brand" href="/" title="Texas X5 Finder">
+      <img src="/static/favicon.svg" alt="" width="40" height="40">
+      <span><b>Texas X5 Finder</b><small>2026 X5 xDrive40i · Texas</small></span>
+    </a>
+    <nav class="menu" aria-label="Main">
+      {% for group in shell.menu %}
+      <div class="grp">{{ group.label }}</div>
+      {% for it in group.entries %}
+      <a href="{{ it.href }}"{% if it.current %} aria-current="page"{% endif %}>
+        <svg class="i" aria-hidden="true"><use href="/static/icons.svg#{{ it.icon }}"/></svg>
+        <span class="lbl">{{ it.label }}</span>
+        {% if it.badge %}<span class="count {{ it.badge.tone }}" aria-label="{{ it.badge.label }}">{{ it.badge.n }}</span>{% endif %}
+        {% if it.live %}<span class="live" data-live{% if not s.running %} hidden{% endif %}><span class="pulse-dot"></span><span class="txt">Live</span></span>{% endif %}
       </a>
       {% endfor %}
+      {% endfor %}
     </nav>
-    <div class="px-5 py-4 border-t border-slate-800/80 text-[11px] text-slate-500 space-y-1">
-      <div>Registry: <span class="text-slate-300">{{ coverage_summary.reported }}/{{ coverage_summary.active }}</span> active TX dealers reported · {{ coverage_summary.no_source }} no source</div>
-      <div>Model: <span class="{{ 'text-emerald-400' if model_enabled else 'text-amber-400' }}">{{ 'enabled' if model_enabled else 'down (deterministic only)' }}</span></div>
-      <div>v{{ version }} · {{ git_sha }}</div>
+    <div class="side-foot">
+      {% set tone = 'running' if s.running else ((s.run.status | lower) if s.run else 'queued') %}
+      <div class="runcard" id="runcard" data-running="{{ 1 if s.running else 0 }}">
+        <span class="dotonly" title="{{ (s.run.status ~ ' · ' ~ s.run.date) if s.run else 'No runs yet' }}" data-s="dot">
+          <span class="status-dot {{ 'dot-reported' if tone == 'published' else 'dot-not_reported' if tone == 'failed' else 'dot-partial' if tone == 'running' else 'dot-no_source' }}"></span>
+        </span>
+        <div class="detail">
+          {% if s.run %}
+          <div class="row"><b data-s="date">{{ s.run.date }}</b>
+            <span data-s="chip" class="chip c-{{ tone }}">{% if s.running %}<span class="pulse-dot"></span>{% endif %}{{ s.run.status }}</span></div>
+          <div class="muted"><span data-s="trigger">{{ s.run.trigger | replace('_', ' ') }}</span> · as of <span data-s="asof">{{ s.run.as_of }}</span></div>
+          {% else %}<div class="muted">No runs yet</div>{% endif %}
+          <div class="muted"><span data-s="cov">{{ s.coverage.reported }} / {{ s.coverage.active }}</span> dealers read · <span data-s="nosrc">{{ s.coverage.no_source }}</span> no source</div>
+          <div class="muted">Model: <span data-s="model">{{ s.model }}</span></div>
+          <a href="/pipeline" data-s="watch"{% if not s.running %} hidden{% endif %}><span class="pulse-dot"></span> Watch live</a>
+        </div>
+      </div>
+      <div class="smallprint">
+        <span>v{{ version }} · {{ git_sha }} · <a href="/api/docs">API docs</a></span>
+        <span>An ApexMoonAI project</span>
+      </div>
+      <button type="button" class="collapse-btn" id="collapseBtn" aria-label="Collapse menu">
+        <svg class="i" aria-hidden="true"><use href="/static/icons.svg#i-collapse"/></svg><span class="lbl">Collapse</span>
+      </button>
     </div>
   </aside>
+  <div class="scrim" id="scrim"></div>
 
-  <main class="flex-1 min-w-0">
-    <header class="sticky top-0 z-20 border-b border-slate-800/80 bg-slate-950/70 backdrop-blur px-6 py-3 flex items-center gap-4">
-      <div class="lg:hidden font-semibold">AI car shopping</div>
-      <h1 class="text-lg font-semibold">{% block heading %}{% endblock %}</h1>
-      <div class="ml-auto flex items-center gap-3 text-xs">
-        <button type="button" id="themeBtn" class="badge b-flag" aria-label="Switch to light mode">Theme</button>
-        <button type="button" id="themeSystem" class="badge b-flag">Use system setting</button>
-        {% if run %}
+  <div class="main">
+    <header class="topbar">
+      <button type="button" class="icon-btn menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar">
+        <svg class="i" aria-hidden="true"><use href="/static/icons.svg#i-menu"/></svg>
+      </button>
+      <div class="crumb">
+        <small>{% if shell.crumb %}<a href="{{ shell.crumb.href }}">{{ shell.crumb.label }}</a> /{% elif shell.item %}{{ shell.item.group }}{% else %}Texas X5 Finder{% endif %}</small>
+        <h1>{% block heading %}{% endblock %}</h1>
+      </div>
+      <div class="top-tools">
+        <form class="searchbox" id="searchForm" action="/search" method="get" role="search">
+          <button type="submit" class="icon-btn" id="searchBtn" aria-label="Search" aria-haspopup="dialog" aria-controls="palette">
+            <svg class="i" aria-hidden="true"><use href="/static/icons.svg#i-search"/></svg>
+          </button>
+          <input id="searchInput" name="q" type="search" autocomplete="off" placeholder="Search VIN, dealer, run…" aria-label="Search cars, dealers, runs and pages">
+          <kbd id="kbdHint">Ctrl K</kbd>
+        </form>
+        {% if shell.run_scoped and run %}
         <form method="get" class="flex items-center gap-2">
-          <label class="text-slate-400">Published run</label>
-          <select name="run_id" onchange="this.form.submit()" class="bg-slate-900 border border-slate-700 rounded-md px-2 py-1 text-slate-200">
+          <label class="muted wide" for="runPicker">Run</label>
+          <select id="runPicker" name="run_id" onchange="this.form.submit()">
             {% for r in runs if r.status == 'PUBLISHED' %}
-            <option value="{{ r.run_id }}" {% if r.run_id == run.run_id %}selected{% endif %}>{{ r.snapshot_date }} · {{ r.trigger }} · {{ r.run_id[-6:] }}</option>
+            <option value="{{ r.run_id }}" {% if r.run_id == run.run_id %}selected{% endif %}>{{ r.snapshot_date }} · {{ r.trigger | replace('_', ' ') }} · {{ r.run_id[-6:] }}</option>
             {% endfor %}
           </select>
         </form>
-        <span class="badge b-info">as of {{ run.ended_at | age }}</span>
+        <span class="chip c-info wide">as of {{ run.ended_at | age }}</span>
         {% endif %}
-        <a class="badge b-flag hover:bg-slate-700" href="/export.csv{% if run %}?run_id={{ run.run_id }}{% endif %}">CSV</a>
-        <a class="badge b-flag hover:bg-slate-700" href="/export.xlsx{% if run %}?run_id={{ run.run_id }}{% endif %}">XLSX</a>
+        {% if shell.exports %}
+        <a class="chip c-flag" href="/export.csv{% if run %}?run_id={{ run.run_id }}{% endif %}">CSV</a>
+        <a class="chip c-flag" href="/export.xlsx{% if run %}?run_id={{ run.run_id }}{% endif %}">XLSX</a>
+        {% endif %}
+        <button type="button" class="icon-btn" id="themeBtn" aria-label="Switch theme">
+          <svg class="i ico-sun" aria-hidden="true"><use href="/static/icons.svg#i-sun"/></svg>
+          <svg class="i ico-moon" aria-hidden="true"><use href="/static/icons.svg#i-moon"/></svg>
+        </button>
+        <button type="button" class="linkish" id="themeSystem">Use system setting</button>
       </div>
     </header>
-    <div class="px-6 py-6 space-y-6">
+    <main id="content" class="wrap" tabindex="-1">
       {% block content %}{% endblock %}
-      <footer class="pt-6 text-[11px] text-slate-500 leading-relaxed">
+      <footer class="disclaimer">
         Advertised cash prices exclude tax, title and dealer fees unless itemised. MSRP is never substituted for a price. A VIN that disappears is
         <em>missing, unverified</em>, never a sale. A dealer that was not read is a gap, not zero. Nothing on this screen is a forecast.
         Unknown is not No.
       </footer>
-    </div>
-  </main>
+    </main>
+  </div>
 </div>
+<div class="palette" id="palette" hidden>
+  <div class="pbox" role="dialog" aria-modal="true" aria-label="Search">
+    <div class="pin">
+      <svg class="i" aria-hidden="true"><use href="/static/icons.svg#i-search"/></svg>
+      <input id="palQ" type="text" role="combobox" aria-expanded="true" aria-controls="palRes" aria-autocomplete="list"
+             aria-label="Search VIN, stock, dealer, city, run or page" placeholder="VIN, last 6 of a VIN, stock, dealer, city, run date, page…" autocomplete="off" spellcheck="false">
+      <kbd>Esc</kbd>
+    </div>
+    <div class="pres" id="palRes" role="listbox" aria-label="Results"></div>
+    <div class="pfoot"><a id="palAll" href="/search">See all results</a><span class="wide">↑ ↓ move · Enter open · ⌘/Ctrl Enter new tab</span></div>
+  </div>
+</div>
+<div class="sr-only" aria-live="polite" id="liveNote"></div>
 {% block scripts %}{% endblock %}
-<script>
-(function () {
-  var root = document.documentElement;
-  var btn = document.getElementById("themeBtn");
-  var sys = document.getElementById("themeSystem");
-  function darkNow() {
-    return root.getAttribute("data-theme") === "dark" ||
-      (!root.hasAttribute("data-theme") && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  }
-  function paint() {
-    var dark = darkNow();
-    if (!btn) return;
-    btn.textContent = dark ? "☀ Light" : "☾ Dark";
-    btn.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
-  }
-  if (btn) btn.addEventListener("click", function () {
-    var next = darkNow() ? "light" : "dark";
-    root.setAttribute("data-theme", next);
-    try { localStorage.setItem("x5finder.theme", next); } catch (e) {}
-    paint();
-    window.dispatchEvent(new Event("x5finder-theme"));
-  });
-  if (sys) sys.addEventListener("click", function () {
-    root.removeAttribute("data-theme");
-    try { localStorage.removeItem("x5finder.theme"); } catch (e) {}
-    paint();
-    window.dispatchEvent(new Event("x5finder-theme"));
-  });
-  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
-    if (!root.hasAttribute("data-theme")) {
-      paint();
-      window.dispatchEvent(new Event("x5finder-theme"));
-    }
-  });
-  paint();
-})();
-</script>
+<script src="/static/shell.js"></script>
 </body>
 </html>

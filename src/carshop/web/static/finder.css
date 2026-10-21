@@ -1,0 +1,119 @@
+/* Find a car (buyer-ui-spec.md). Scoped under .finder; colors and type come from app.css tokens. */
+.finder { display: grid; gap: 16px; }
+.finder a { color: var(--accent); }
+.finder .num, .finder .price { font-variant-numeric: tabular-nums; }
+.finder .intro { margin: 0; color: var(--muted); }
+.finder .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good); margin-right: 6px; vertical-align: 1px; animation: pulse-dot 2s infinite; }
+
+.finder .flow ol { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0; padding: 0; }
+@media (max-width: 800px) { .finder .flow ol { grid-template-columns: 1fr 1fr; } }
+.finder .flow a { display: grid; gap: 2px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); color: var(--ink); text-decoration: none; transition: border-color .2s, transform .3s var(--ease); }
+.finder .flow a:hover { border-color: var(--accent); transform: translateY(-2px); }
+.finder .flow .step { font-family: var(--font-data); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.finder .flow strong { font-family: var(--font-ui); font-size: 20px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.finder .layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .finder .layout { grid-template-columns: minmax(0, 1fr); } }
+.finder .rail { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); position: sticky; top: 72px; }
+@media (max-width: 900px) { .finder .rail { position: static; } }
+.finder .rail > summary { list-style: none; cursor: pointer; padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.finder .rail > summary::-webkit-details-marker { display: none; }
+.finder .rail > summary h2 { font-size: 19px; margin: 0; }
+.finder .hint { font-size: 12px; color: var(--muted); }
+.finder .rail-body { padding: 0 16px 16px; display: grid; gap: 18px; }
+.finder .group h3 { font-family: var(--font-data); font-weight: 600; font-size: 11px; line-height: 1.2; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; }
+.finder .row { display: flex; flex-wrap: wrap; gap: 6px; }
+.finder .wchip { border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 5px 11px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; transition: transform .25s var(--spring), border-color .2s; }
+.finder .wchip:active { transform: scale(.94); }
+.finder .wchip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.finder .wchip:disabled { opacity: .5; cursor: not-allowed; }
+.finder .wchip .ct { color: var(--muted); font-size: 12px; }
+.finder .sw { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line-strong); flex: none; display: inline-block; }
+.finder .budget-out { font-family: var(--font-ui); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.finder input[type="range"] { width: 100%; accent-color: var(--accent); }
+.finder select { width: 100%; padding: 7px 9px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface); color: var(--ink); font-size: 14px; }
+.finder .check { display: flex; gap: 8px; align-items: center; font-size: 14px; cursor: pointer; }
+.finder .pk { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; align-items: center; }
+.finder .pk .name { font-size: 14px; }
+.finder .seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+.finder .seg button { border: 0; background: transparent; color: var(--ink); padding: 4px 9px; font-size: 12px; transition: transform .25s var(--spring); }
+.finder .seg button:active { transform: scale(.94); }
+.finder .seg button + button { border-left: 1px solid var(--line-strong); }
+.finder .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.finder .seg button[data-v="must"][aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.finder .reset { justify-self: start; background: none; border: 0; color: var(--accent); padding: 0; font-size: 13px; text-decoration: underline; }
+.finder .note { font-size: 12px; color: var(--muted); margin: 0; }
+
+.finder .fmain { display: grid; gap: 20px; min-width: 0; }
+.finder .panel { padding: 18px; }
+.finder .panel h2 { font-size: 21px; margin: 0 0 4px; }
+.finder .sub { color: var(--muted); font-size: 13px; margin: 0 0 12px; }
+.finder .answer { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr)); gap: 16px 24px; }
+.finder .answer > div { min-width: 0; }
+.finder .answer .big { font-family: var(--font-ui); font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.finder .answer .lbl { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.finder .answer .lead .big { color: var(--accent); }
+.finder .range { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 600px) { .finder .range { grid-template-columns: 1fr; } }
+.finder .spread { margin: 12px 0 0; }
+.finder .chart { overflow-x: auto; }
+.finder .chart svg { display: block; width: 100%; min-width: 560px; height: auto; }
+.finder .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.finder .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+.finder .results-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 16px; }
+.finder .sort { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+.finder .sort select { width: auto; }
+.finder .section-title { font-family: var(--font-data); font-weight: 600; font-size: 11px; line-height: 1.2; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 18px 0 10px; display: flex; gap: 8px; align-items: center; }
+.finder .section-title .count { background: var(--sunk); color: var(--ink); border-radius: 999px; padding: 1px 8px; letter-spacing: 0; }
+.finder .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; }
+.finder .car { border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 10px; align-content: start; background: var(--surface); min-width: 0; transition: transform .3s var(--ease), border-color .3s, box-shadow .3s; }
+@media (hover: hover) { .finder .car:hover { transform: translateY(-4px); border-color: var(--accent); box-shadow: var(--shadow); } }
+.finder .car.best { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 0 24px var(--accent-soft); }
+.finder .car .price { font-family: var(--font-ui); font-size: 28px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; white-space: nowrap; }
+.finder .car .price.none { font-size: 18px; color: var(--muted); font-weight: 600; line-height: 1.2; white-space: normal; letter-spacing: 0; }
+.finder .car .vsmsrp, .finder .where .dist, .finder .car-foot .seen { color: var(--muted); }
+.finder .car .vsmsrp { font-size: 12px; margin-top: 3px; }
+.finder .fit-tag { justify-self: start; width: max-content; max-width: 100%; font-size: 12px; font-weight: 600; border-radius: 6px; padding: 3px 8px; }
+.finder .fit-tag.good { background: var(--good-soft); color: var(--good); }
+.finder .fit-tag.maybe { background: var(--warn-soft); color: var(--warn); }
+.finder .range-tag { justify-self: start; width: max-content; font-family: var(--font-data); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--gold); }
+.finder .wishline { font-size: 13px; }
+.finder .colors { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+.finder .colors span { display: inline-flex; gap: 6px; align-items: center; }
+.finder .feats { display: flex; flex-wrap: wrap; gap: 6px; }
+.finder .feat { font-size: 12px; border-radius: 6px; padding: 2px 7px; border: 1px solid var(--line-strong); }
+.finder .feat.yes { background: var(--good-soft); border-color: transparent; color: var(--good); }
+.finder .feat.unk { color: var(--muted); border-style: dashed; }
+.finder .car-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; }
+.finder .cmp { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.finder .ext { display: inline-block; transition: transform .3s var(--spring); }
+.finder a:hover .ext { transform: translate(2px, -2px); }
+.finder .empty { border: 1px dashed var(--line-strong); border-radius: var(--r); padding: 18px; color: var(--muted); }
+.finder .more { background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); border-radius: 8px; padding: 7px 12px; margin-top: 12px; }
+.finder .yes { color: var(--good); font-weight: 600; }
+.finder .unk { color: var(--muted); }
+
+.finder .tray { position: fixed; left: 0; right: 0; bottom: 0; z-index: 35; background: var(--surface); color: var(--ink); border-top: 1px solid var(--line-strong); box-shadow: var(--shadow);
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); max-height: 70vh; overflow: auto; animation: tray-up .45s var(--ease); }
+@keyframes tray-up { from { transform: translateY(100%); } }
+.finder .tray-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; max-width: 1240px; margin: 0 auto; }
+.finder .tray-head button { border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 6px 12px; }
+.finder .tray table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 14px; }
+.finder .tray th, .finder .tray td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.finder .tray th { color: var(--muted); font-weight: 500; width: 190px; }
+
+/* Page load: panels settle in from near-visible; nothing waits hidden. */
+@keyframes fade-up { from { opacity: .35; transform: translateY(18px); } }
+.finder > *, .finder .rail, .finder .fmain > .panel { animation: fade-up .8s var(--ease) both; }
+.finder .flow { animation-delay: 0ms; }
+.finder .rail { animation-delay: 90ms; }
+.finder .fmain > .panel:nth-child(1) { animation-delay: 180ms; }
+.finder .fmain > .panel:nth-child(2) { animation-delay: 270ms; }
+.finder .fmain > .panel:nth-child(3) { animation-delay: 360ms; }
+.finder .fmain > .panel:nth-child(4) { animation-delay: 450ms; }
+.finder .fmain > .panel:nth-child(5) { animation-delay: 540ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .finder > *, .finder .rail, .finder .fmain > .panel, .finder .tray, .finder .live-dot { animation: none; }
+  .finder .car, .finder .flow a, .finder .wchip, .finder .seg button, .finder .ext { transition: none; }
+}
