@@ -110,7 +110,7 @@ class Settings(BaseSettings):
 
     @property
     def checkpoint_db_path(self) -> Path:
-        return self.data_dir / "checkpoints.db"
+        return self.data_dir / "checkpoints.sqlite"
 
     @property
     def snapshots_dir(self) -> Path:

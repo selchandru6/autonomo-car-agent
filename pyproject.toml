@@ -28,10 +28,11 @@ dependencies = [
   "opentelemetry-sdk>=1.27",
   "opentelemetry-exporter-otlp-proto-http>=1.27",
   "rich>=13.8",
+  "langgraph==1.2.16",
+  "langgraph-checkpoint-sqlite==3.1.2",
 ]
 
 [project.optional-dependencies]
-graph = ["langgraph>=0.2.40", "langgraph-checkpoint-sqlite>=2.0"]
 llm = ["openai>=1.50"]
 
 [dependency-groups]
@@ -94,6 +95,7 @@ ignore = [
 "migrations/**" = ["E501", "I"]
 "src/carshop/cli.py" = ["T20", "B008"]
 "src/carshop/web/**" = ["B008"]
+"src/carshop/agents/**" = ["ARG001"]  # LangGraph node signature: (state, runtime)
 
 [tool.ruff.lint.isort]
 known-first-party = ["carshop"]
