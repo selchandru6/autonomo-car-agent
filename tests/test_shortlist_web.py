@@ -1,4 +1,4 @@
-"""requirements-shortlist.md §11 checks 1 and 10: saving from the screen, and the write guards.
+"""requirements-shortlist.md §11 checks 1, 2, 3, 10, 12, 13: saving, searches, and write guards.
 
 Runs on a copy of the local database (the worked example is real 2026-10-20 data), so the
 owner's own shortlist is never touched.
@@ -6,6 +6,7 @@ owner's own shortlist is never touched.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from pathlib import Path
@@ -18,19 +19,39 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 
 from carshop.config.settings import Settings, get_settings
+from carshop.shortlist import match as sm
 from carshop.shortlist import saved as sl
+from carshop.shortlist import searches as ss
 from carshop.storage import schema as s
 from carshop.storage.db import make_engine, read_conn
 from carshop.web.app import create_app, is_loopback
 from tests.test_buyer_vocabulary import leaks
 
 VIN = "5UX23EU0XT9462524"  # Skyscraper Grey / Silverstone at BMW of Arlington
+MATCH_VIN = "5UX23EU01T9541662"  # Dravit Grey / Cognac, DAP YES, $88,225
+POSSIBLE_VIN = "5UX23EU02T9552461"  # DAP not listed
+EXCLUDED_VIN = "5UX23EU0XT9439258"  # $92,869, outside ±$3,000
+WISH = {
+    "budget": 90_000,
+    "near": "any",
+    "radius": None,
+    "transit": True,
+    "colorsOnly": False,
+    "sort": "match",
+    "ext": ["Skyscraper Grey", "Brooklyn Grey"],
+    "int": ["Cognac", "Coffee"],
+    "feats": {"DAP": "must", "PANORAMIC_ROOF": "nice"},
+}
 ORIGIN = "http://testserver"
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 ALLOWED_WRITES = {
     ("POST", "/api/shortlist/cars"),
     ("PATCH", "/api/shortlist/cars/{vin}"),
     ("DELETE", "/api/shortlist/cars/{vin}"),
+    ("POST", "/api/shortlist/searches"),
+    ("POST", "/api/shortlist/searches/preview"),
+    ("PATCH", "/api/shortlist/searches/{search_id}"),
+    ("DELETE", "/api/shortlist/searches/{search_id}"),
     ("POST", "/review/{item_id}"),  # always 403: review decisions go through the CLI
 }
 PROTECTED = (
@@ -129,7 +150,14 @@ def test_check1_save_on_all_inventory_shows_saved_everywhere(
     gone = client.delete(f"/api/shortlist/cars/{VIN}", headers=_headers(client))
     assert gone.status_code == 200 and gone.json()["removed"] is True
     assert "☆ Save" in _button(client.get("/catalog").text, VIN)
-    assert "No saved cars yet. Use ☆ Save on any car." in client.get("/shortlist?tab=saved").text
+    saved_page = client.get("/shortlist?tab=saved").text
+    assert VIN not in saved_page or "☆ Save" in _button(saved_page, VIN)
+    eng = make_engine(data_dir / "app.db")
+    with read_conn(eng) as c:
+        leftover = sl.saved_vins(c)
+    assert VIN not in leftover
+    if not leftover:
+        assert "No saved cars yet. Use ☆ Save on any car." in saved_page
 
 
 def test_cars_never_read_in_a_run_cannot_be_saved(client: TestClient, data_dir: Path) -> None:
@@ -170,6 +198,16 @@ def test_check10_cross_origin_and_missing_token_are_refused(
             ).status_code
             == 403
         )
+        assert (
+            client.post("/api/shortlist/searches", json={"name": "x"}, headers=headers).status_code
+            == 403
+        )
+        assert (
+            client.post(
+                "/api/shortlist/searches/preview", json={"criteria": {}}, headers=headers
+            ).status_code
+            == 403
+        )
     ok = client.post(
         "/api/shortlist/cars",
         json=body,
@@ -207,12 +245,18 @@ def test_check10_route_inventory_no_write_reaches_run_data(
     }
     assert writes == ALLOWED_WRITES
     assert client.post("/review/1").status_code == 403
-    # The only module behind the write endpoints writes saved_cars and nothing else.
-    src = (Path(sl.__file__)).read_text()
-    targets = set(re.findall(r"update\(s\.(\w+)\)", src)) | set(
-        re.findall(r"s\.(\w+)\.(?:insert|delete)\(", src)
-    )
-    assert targets == {"saved_cars"}
+    # Write-endpoint modules never touch run evidence. Matcher failure markers live in
+    # notification_events and are not reachable from these routes.
+    def tables(path: Path) -> set[str]:
+        src = path.read_text()
+        return (
+            set(re.findall(r"update\(s\.(\w+)\)", src))
+            | set(re.findall(r"s\.(\w+)\.(?:insert|delete)\(", src))
+            | set(re.findall(r"delete\(s\.(\w+)\)", src))
+        )
+
+    assert tables(Path(sl.__file__)) == {"saved_cars"}
+    assert tables(Path(ss.__file__)) <= {"saved_searches", "search_matches", "notification_events"}
     before = _counts(data_dir)
     h = _headers(client)
     assert client.post("/api/shortlist/cars", json={"vin": VIN}, headers=h).status_code == 200
@@ -220,6 +264,8 @@ def test_check10_route_inventory_no_write_reaches_run_data(
         client.patch(f"/api/shortlist/cars/{VIN}", json={"note": "n"}, headers=h).status_code == 200
     )
     assert client.delete(f"/api/shortlist/cars/{VIN}", headers=h).status_code == 200
+    preview = client.post("/api/shortlist/searches/preview", json={"criteria": {}}, headers=h)
+    assert preview.status_code == 200
     assert _counts(data_dir) == before
 
 
@@ -232,3 +278,115 @@ def test_a_busy_database_gets_the_try_again_message(
     monkeypatch.setattr(sl, "save_car", locked)
     r = client.post("/api/shortlist/cars", json={"vin": VIN}, headers=_headers(client))
     assert r.status_code == 503 and r.json()["error"] == sl.BUSY
+
+
+def _finder_payload(html: str) -> dict[str, Any]:
+    m = re.search(r'<script type="application/json" id="finderData">(.*?)</script>', html, re.S)
+    assert m, "no finder payload"
+    return json.loads(m.group(1))
+
+
+def test_check2_find_cars_like_this_prefills_and_preview_matches_save(
+    client: TestClient, data_dir: Path
+) -> None:
+    form = client.get(f"/shortlist/searches/new?base={VIN}").text
+    assert form.count('name="feat-DAP"') >= 3
+    assert re.search(r'name="feat-DAP" value="must"[^>]*checked', form)
+    assert re.search(r'name="feat-M_SPORT" value="nice"[^>]*checked', form)
+    assert re.search(r'name="feat-PANORAMIC_ROOF" value="nice"[^>]*checked', form)
+    assert re.search(r'name="feat-CLIMATE_COMFORT" value="nice"[^>]*checked', form)
+    assert 'value="Grey" checked' in form or "value=\"Grey\" checked" in form
+    assert "Any grey" in form and "Any light" in form
+    assert "Like Skyscraper Grey · Silverstone" in form
+    assert "$84,949 to $90,949" in form
+    assert leaks(form) == set()
+
+    eng = make_engine(data_dir / "app.db")
+    with read_conn(eng) as c:
+        saved = sl.get_saved(c, VIN)
+        obs = sl.latest_validated(c, VIN)
+        assert obs is not None
+        snap = saved["snapshot"] if saved else sl.build_snapshot(c, obs)
+        _name, criteria = sm.prefill_from_snapshot(snap, obs.get("city"))
+    h = _headers(client)
+    preview = client.post(
+        "/api/shortlist/searches/preview", json={"criteria": criteria}, headers=h
+    )
+    assert preview.status_code == 200, preview.text
+    named = re.search(r'id="sfName"[^>]*value="([^"]+)"', form)
+    assert named and named.group(1).startswith("Like Skyscraper Grey · Silverstone")
+    saved_search = client.post(
+        "/api/shortlist/searches",
+        json={"name": named.group(1), "criteria": criteria},
+        headers=h,
+    )
+    assert saved_search.status_code == 200, saved_search.text
+    body = saved_search.json()
+    assert body["match"] == preview.json()["match"]
+    assert body["possible"] == preview.json()["possible"]
+    listed = client.get("/shortlist?tab=searches").text
+    assert named.group(1) in listed
+    assert leaks(listed) == set()
+    client.delete(f"/api/shortlist/searches/{body['search_id']}", headers=h)
+    client.delete(f"/api/shortlist/cars/{VIN}", headers=h)
+
+
+def test_check3_worked_example_peers(client: TestClient, data_dir: Path) -> None:
+    eng = make_engine(data_dir / "app.db")
+    with read_conn(eng) as c:
+        if any(sl.latest_validated(c, v) is None for v in (MATCH_VIN, POSSIBLE_VIN, EXCLUDED_VIN)):
+            pytest.skip("worked-example peers not in the local data")
+        obs = sl.latest_validated(c, VIN)
+        assert obs is not None
+        snap = sl.build_snapshot(c, obs)
+        _name, criteria = sm.prefill_from_snapshot(snap, obs.get("city"))
+    h = _headers(client)
+    created = client.post(
+        "/api/shortlist/searches", json={"name": "Worked example", "criteria": criteria}, headers=h
+    )
+    assert created.status_code == 200, created.text
+    sid = created.json()["search_id"]
+    page = client.get(f"/shortlist/searches/{sid}").text
+    assert MATCH_VIN in page and "Match" in page and "+$276" in page
+    assert POSSIBLE_VIN in page and "Possible match" in page
+    assert EXCLUDED_VIN not in page
+    assert VIN not in page.split("Current matches")[-1]
+    assert leaks(page) == set()
+    client.delete(f"/api/shortlist/searches/{sid}", headers=h)
+    client.delete(f"/api/shortlist/cars/{VIN}", headers=h)
+
+
+def test_check12_four_tabs_and_the_menu_badge(client: TestClient) -> None:
+    home = client.get("/shortlist").text
+    for label in ("New today", "Saved cars", "Saved searches", "Ranked for you"):
+        assert label in home
+    for tab in ("new", "saved", "searches", "ranked"):
+        r = client.get(f"/shortlist?tab={tab}")
+        assert r.status_code == 200, tab
+        assert f'href="/shortlist?tab={tab}"' in r.text or f"tab={tab}" in r.text
+        assert 'aria-current="true"' in r.text
+        assert leaks(r.text) == set()
+    status = client.get("/api/status").json()
+    n = status["new_matches"]
+    html = client.get("/shortlist").text
+    if n:
+        assert f'aria-label="{n} new matches today"' in html
+    else:
+        assert "new matches today" not in html
+
+
+def test_check13_wish_list_round_trips_through_find_a_car(client: TestClient) -> None:
+    h = _headers(client)
+    created = client.post(
+        "/api/shortlist/searches", json={"wish": WISH}, headers=h
+    )
+    assert created.status_code == 200, created.text
+    sid = created.json()["search_id"]
+    payload = _finder_payload(client.get(f"/?search={sid}").text)
+    opened = payload["openSearch"]
+    assert opened["id"] == sid
+    again = sm.criteria_from_wish(opened["wish"])
+    assert again == sm.criteria_from_wish(WISH)
+    listed = client.get("/shortlist?tab=searches").text
+    assert created.json()["name"] in listed
+    client.delete(f"/api/shortlist/searches/{sid}", headers=h)

@@ -80,7 +80,9 @@ def test_badges_match_the_shown_run(client: TestClient) -> None:
 
 def test_api_status_shape(client: TestClient) -> None:
     status = client.get("/api/status").json()
-    assert set(status) == {"run", "running", "coverage", "model", "pending", "not_reported"}
+    assert set(status) == {
+        "run", "running", "coverage", "model", "pending", "not_reported", "new_matches",
+    }  # fmt: skip
     assert status["running"] is False
     assert status["coverage"] == {"reported": 21, "active": 27, "no_source": 0}
     assert status["run"]["status"] == "PUBLISHED"

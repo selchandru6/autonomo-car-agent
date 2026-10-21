@@ -48,6 +48,8 @@
           <label class="check"><input type="checkbox" id="transit"> Include cars still on the way to the dealer</label>
         </div>
         <button class="reset" id="reset" type="button">Reset to my saved preferences</button>
+        {% if shortlist_writes %}<button class="reset" id="saveWish" type="button">Save this wish list as a search</button>{% endif %}
+        <p class="note" id="openedSearch" role="status" hidden></p>
       </div>
     </details>
     <div class="fmain">

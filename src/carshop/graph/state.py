@@ -16,7 +16,7 @@ from carshop.domain.codes import ReasonCode
 from carshop.domain.models import Exclusion, FeatureEvidence, FetchAttempt, Observation, RawListing
 from carshop.graph.reducers import merge_by_dealer_id
 
-Phase = Literal["admit", "plan", "collect", "compare", "publish", "done", "failed"]
+Phase = Literal["admit", "plan", "collect", "compare", "publish", "match", "done", "failed"]
 
 
 class RunMeta(TypedDict):
@@ -94,6 +94,16 @@ class Notifications(TypedDict):
     backup_path: str | None
 
 
+class MatchSummary(TypedDict):
+    """A10 Matcher output: counts only, never car rows (requirements-shortlist.md §6.1)."""
+
+    searches: int
+    match: int
+    possible: int
+    new: int
+    error: str | None
+
+
 class RunState(TypedDict, total=False):
     # Supervisor
     run: RunMeta
@@ -108,6 +118,8 @@ class RunState(TypedDict, total=False):
     outcomes: Annotated[dict[str, DealerOutcome], merge_by_dealer_id]
     # Comparator
     deltas: Deltas
+    # Matcher
+    matches: MatchSummary
     # Notifier
     notifications: Notifications
 

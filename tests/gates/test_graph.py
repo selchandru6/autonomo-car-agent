@@ -52,6 +52,7 @@ NODES = {
     "supervisor_cutoff",
     "comparator",
     "supervisor_publish",
+    "matcher",
     "notifier",
 }
 EDGES = {
@@ -65,7 +66,8 @@ EDGES = {
     ("dealer_branch", "supervisor_cutoff"),
     ("supervisor_cutoff", "comparator"),
     ("comparator", "supervisor_publish"),
-    ("supervisor_publish", "notifier"),
+    ("supervisor_publish", "matcher"),
+    ("matcher", "notifier"),
     ("notifier", "__end__"),
 }
 DEALER_NODES = {
@@ -125,8 +127,9 @@ def test_M2_agent_registry_declares_every_agent_and_owns_every_state_field() -> 
         "Recorder",
         "Comparator",
         "Notifier",
+        "Matcher",
     ]
-    assert [a.id for a in catalog.AGENTS] == [f"A{i}" for i in range(1, 10)]
+    assert [a.id for a in catalog.AGENTS] == [f"A{i}" for i in range(1, 11)]
     assert {a.name for a in catalog.AGENTS if a.mode == "model-assisted"} == {
         "Supervisor",
         "Extractor",

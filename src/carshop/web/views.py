@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -13,10 +12,13 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import Connection, select
 
-from carshop.config.loaders import Preferences
+from carshop.config.loaders import Preferences, load_locator_coords
 from carshop.domain.codes import Feature, Tri
+from carshop.domain.display import canon_exterior, canon_interior, price_gap_reason
+from carshop.domain.display import cash_cents as _cash_cents
+from carshop.domain.display import index_features as _index_features
 from carshop.domain.pricing import fmt_cents
-from carshop.reference.data import BLACK_INTERIOR_CODES, EXTERIOR_COLORS, GREY_EXTERIOR_CODES
+from carshop.reference.data import BLACK_INTERIOR_CODES, GREY_EXTERIOR_CODES
 from carshop.storage import repos
 from carshop.storage import schema as s
 
@@ -72,23 +74,6 @@ class Unit:
         if "CONDITIONAL_ONLY" in flags:
             return "conditional only"
         return "not shown"
-
-
-def _index_features(rows: list[Row]) -> dict[str, Row]:
-    """A conflict keeps both stored rows, and the screen must not treat either as a match."""
-    grouped: dict[str, list[Row]] = {}
-    for row in rows:
-        grouped.setdefault(str(row["feature"]), []).append(row)
-    out: dict[str, Row] = {}
-    for name, items in grouped.items():
-        if any(item["sufficiency"] == "CONFLICT" for item in items):
-            merged = dict(items[0])
-            merged["status"] = "UNKNOWN"
-            merged["sufficiency"] = "CONFLICT"
-            out[name] = merged
-        else:
-            out[name] = items[-1]
-    return out
 
 
 def load_units(conn: Connection, run_id: str, prefs: Preferences) -> list[Unit]:
@@ -568,10 +553,6 @@ _BUYER_FEATURES = (
     "CLIMATE_COMFORT",
     "AIR_SUSPENSION",
 )
-_EXT_NAMES = [
-    re.sub(r"\s+metallic$", "", name, flags=re.I) for name in EXTERIOR_COLORS.values()
-] + ["Grigio Telesto"]
-_INT_COLORS = ("ivory white", "silverstone", "cognac", "coffee", "tartufo", "black")
 # Buyer-facing tokens. The page must not contain pipeline words such as REPORTED.
 _STATUS_WORD = {
     "REPORTED": "checked",
@@ -584,74 +565,6 @@ _STATUS_REASON = {
     "missing": "Website not on file yet",
     "unread": "Couldn't read the website",
 }
-
-
-def canon_exterior(raw: str | None) -> tuple[str, str]:
-    """Drop Metallic, spell Grey, and use the official color name when it is contained."""
-    if not raw:
-        return "Not shown", "Other"
-    cleaned = re.sub(r"\bmetallic\b", "", raw, flags=re.I)
-    cleaned = cleaned.replace("Gray", "Grey").replace("gray", "grey")
-    cleaned = " ".join(cleaned.split())
-    name = cleaned or "Not shown"
-    low = cleaned.lower()
-    for known in _EXT_NAMES:
-        if known.lower() in low:
-            name = known
-            break
-    family = "Other"
-    for fam in ("grey", "white", "black", "blue", "green"):
-        if fam in name.lower():
-            family = fam.capitalize()
-            break
-    return name, family
-
-
-def canon_interior(raw: str | None) -> tuple[str, str | None]:
-    if not raw:
-        return "Not shown", None
-    low = raw.lower()
-    color = next((name for name in _INT_COLORS if name in low), None)
-    material = "Merino leather" if "merino" in low else "Sensafin" if "sensafin" in low else None
-    return (color.title() if color else " ".join(raw.split()), material)
-
-
-def price_gap_reason(flags: set[str], msrp_cents: int | None) -> str:
-    if "PRICE_IS_PAYMENT" in flags:
-        return "Lease/finance payment only"
-    if "CONDITIONAL_ONLY" in flags:
-        return "Price only after conditional rebates"
-    if "CALL_FOR_PRICE" in flags:
-        return "Call for price"
-    if msrp_cents:
-        return "Only MSRP shown"
-    return "No cash price shown"
-
-
-def _cash_cents(comparison: int | None, basis: str | None) -> int | None:
-    """A cash price is the stored vehicle-only figure. Anything else is not a price."""
-    if comparison is None:
-        return None
-    if basis in (None, "", "vehicle_only"):
-        return int(comparison)
-    return None
-
-
-def _locator_coords(directory: Path) -> dict[str, tuple[float, float]]:
-    files = sorted(directory.glob("locator-*Z.json"))
-    if not files:
-        return {}
-    try:
-        payload = json.loads(files[-1].read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
-    out: dict[str, tuple[float, float]] = {}
-    for dealer in payload.get("dealers") or []:
-        lat, lon = dealer.get("latitude"), dealer.get("longitude")
-        if lat is None or lon is None:
-            continue
-        out[str(dealer.get("center_id"))] = (float(lat), float(lon))
-    return out
 
 
 def buyer_payload(conn: Connection, registry_dir: Path) -> dict[str, Any]:
@@ -668,7 +581,7 @@ def buyer_payload(conn: Connection, registry_dir: Path) -> dict[str, Any]:
         }
     run_id = str(run["run_id"])
     started = str(run["started_at"])
-    coords = _locator_coords(registry_dir)
+    coords = load_locator_coords(registry_dir)
     dealer_rows = repos.list_dealers(conn)
     status: dict[str, dict[str, Any]] = {}
     later = conn.execute(

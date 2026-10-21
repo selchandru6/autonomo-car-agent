@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from importlib import resources
 from pathlib import Path
 
@@ -117,3 +118,21 @@ def load_registry(path: Path | None = None) -> Registry:
 def load_preferences(path: Path | None = None) -> Preferences:
     _, data = _read(path, "preferences.yaml")
     return Preferences.model_validate(data)
+
+
+def load_locator_coords(directory: Path) -> dict[str, tuple[float, float]]:
+    """Latitude and longitude by BMW center number, from the newest locator snapshot."""
+    files = sorted(directory.glob("locator-*Z.json"))
+    if not files:
+        return {}
+    try:
+        payload = json.loads(files[-1].read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    out: dict[str, tuple[float, float]] = {}
+    for dealer in payload.get("dealers") or []:
+        lat, lon = dealer.get("latitude"), dealer.get("longitude")
+        if lat is None or lon is None:
+            continue
+        out[str(dealer.get("center_id"))] = (float(lat), float(lon))
+    return out

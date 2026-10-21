@@ -41,6 +41,11 @@ function miles(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 let wish = load();
+if (D.openSearch) {
+  wish = { ...structuredClone(DEFAULT_WISH), ...D.openSearch.wish };
+  save();
+  const u = new URL(location.href); u.searchParams.delete("search"); history.replaceState(null, "", u);
+}
 let compare = [];
 let showAll = { match: 6, maybe: 6 };
 function load() {
@@ -211,6 +216,7 @@ function card(x, i, group) {
   const priceHtml = c.price != null
     ? '<div class="price num">' + esc(usd(c.price)) + '</div><div class="vsmsrp">' + (c.msrp ? esc(vsMsrp(c.price, c.msrp)) : "cash price") + '</div>'
     : '<div class="price none">' + esc(c.noPriceWhy) + '</div><div class="vsmsrp">' + (c.msrp ? "MSRP " + esc(usd(c.msrp)) + " · ask the dealer" : "ask the dealer") + '</div>';
+  const news = ((D.newFor || {})[c.vin] || []).map(n => '<span class="fit-tag good">New for ' + esc(n) + '</span>').join("");
   const tag = group === "range" ? '<div class="wishline">' + esc(wishLine(j)) + '</div>'
     : group === "match"
     ? '<span class="fit-tag good">' + (j.total ? "Meets " + j.met + " of " + j.total + " wishes" : "Fits") + '</span>'
@@ -219,7 +225,7 @@ function card(x, i, group) {
   const inCmp = compare.includes(c.vin);
   const link = c.url ? '<a href="' + esc(c.url) + '" target="_blank" rel="noopener">View at dealer <span class="ext">↗</span></a>' : '<span class="note">No dealer page listed</span>';
   return '<article class="car ' + (group === "match" && i === 0 && wish.sort === "match" ? "best" : "") + '" data-vin="' + esc(c.vin) + '">' +
-    '<div>' + priceHtml + '</div>' + tag +
+    '<div>' + priceHtml + '</div>' + tag + news +
     '<div class="where"><a href="/dealers/' + esc(c.dealer) + '"><b>' + esc(d.name) + '</b></a> · ' + esc(d.city) + dist + '</div>' +
     '<div class="colors"><span><i class="sw" style="background:' + (SW[c.ext] || "var(--sunk)") + '"></i>' + esc(c.ext) + '</span><span><i class="sw" style="background:' + (SW[c.int] || "var(--sunk)") + '"></i>' + esc(c.int + (c.intMat ? " " + c.intMat : "") + " interior") + '</span></div>' +
     '<div class="feats">' + (featTags(c) || '<span class="note">No packages listed by the dealer</span>') + '</div>' +
@@ -344,6 +350,7 @@ finder.addEventListener("click", e => {
   else if (t.dataset.feat) { const v = t.dataset.v; if (v) wish.feats[t.dataset.feat] = v; else delete wish.feats[t.dataset.feat]; update(); }
   else if (t.dataset.more) { showAll[t.dataset.more] = 1e9; render(); }
   else if (t.id === "reset") { wish = structuredClone(DEFAULT_WISH); compare = []; update(); }
+  else if (t.id === "saveWish") { saveWish(t); }
   else if (t.id === "trayClear") { compare = []; render(); }
   else if (t.id === "trayToggle") { const tb = $("trayTable"); tb.hidden = !tb.hidden; t.textContent = tb.hidden ? "Show" : "Hide"; }
 });
@@ -358,6 +365,20 @@ finder.addEventListener("change", e => {
 $("budget").addEventListener("input", e => {
   const v = +e.target.value; wish.budget = v >= +e.target.max ? null : v; budgetLabel(); save(); render();
 });
+async function saveWish(btn) {
+  btn.disabled = true;
+  try {
+    const r = await window.Shortlist.call("POST", "/api/shortlist/searches", { wish });
+    window.Shortlist.toast("Saved as \u201c" + r.name + "\u201d in My shortlist, Saved searches.");
+  } catch (e) { window.Shortlist.toast(e.message); }
+  finally { btn.disabled = false; }
+}
+if (D.openSearch) {
+  const el = $("openedSearch");
+  el.textContent = "Opened your saved search \u201c" + D.openSearch.name + "\u201d." +
+    (D.openSearch.band ? " Find a car shows every price; the price range around the base car stays in the saved search." : "");
+  el.hidden = false;
+}
 buildControls();
 render();
 render.ready = true;

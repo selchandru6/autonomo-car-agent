@@ -42,3 +42,18 @@
     <td class="text-[11px] muted whitespace-nowrap">{{ u.row.fetched_at | age }}</td>
   </tr>
 {%- endmacro %}
+
+{% macro search_controls(srch, detail=False) -%}
+<div class="flex flex-wrap gap-2 items-center" data-search-controls="{{ srch.search_id }}">
+  <a class="btn sm" href="/?search={{ srch.search_id }}">Open in Find a car</a>
+  {% if shortlist_writes %}
+  {% if not detail %}<a class="btn sm" href="/shortlist/searches/{{ srch.search_id }}">Show matches</a>{% endif %}
+  <a class="btn sm" href="/shortlist/searches/{{ srch.search_id }}/edit">Edit</a>
+  <button type="button" class="btn sm" data-search-act="{{ 'resume' if srch.paused else 'pause' }}" data-search-id="{{ srch.search_id }}">{{ 'Resume' if srch.paused else 'Pause' }}</button>
+  <button type="button" class="btn sm" data-search-act="{{ 'alerts-off' if srch.alerts else 'alerts-on' }}" data-search-id="{{ srch.search_id }}" aria-pressed="{{ 'true' if srch.alerts else 'false' }}">Digest alerts {{ 'on' if srch.alerts else 'off' }}</button>
+  <button type="button" class="btn sm danger" data-search-act="delete" data-search-id="{{ srch.search_id }}"{% if detail %} data-after="/shortlist?tab=searches"{% endif %}>Delete</button>
+  {% elif not detail %}
+  <a class="btn sm" href="/shortlist/searches/{{ srch.search_id }}">Show matches</a>
+  {% endif %}
+</div>
+{%- endmacro %}

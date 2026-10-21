@@ -82,7 +82,14 @@ def build_digest(conn: Connection, run_id: str) -> Digest:
             )
         lines.append("")
     from carshop.shortlist.saved import digest_lines
+    from carshop.shortlist.searches import digest_search_lines, matcher_failed
 
+    if matcher_failed(conn, run_id):
+        lines += ["Saved-search matches could not be computed today", ""]
+    else:
+        fresh = digest_search_lines(conn, run_id)
+        if fresh:
+            lines += ["New for your saved searches", *fresh, ""]
     watched = digest_lines(conn, run_id)
     if watched:
         lines += ["Your saved cars", *watched, ""]
@@ -194,7 +201,26 @@ def deliver_digest(
                     sent=True,
                 )
                 results[rcpt] = f"file:{path}"
+            if results.get(rcpt) in ("sent",) or str(results.get(rcpt, "")).startswith("file:"):
+                _record_line_keys(conn, run_id, rcpt, digest.content_hash)
     return results
+
+
+def _record_line_keys(conn: Connection, run_id: str, rcpt: str, content_hash: str) -> None:
+    from carshop.shortlist.searches import digest_line_keys
+
+    for key in digest_line_keys(conn, run_id):
+        repos.record_notification(
+            conn,
+            run_id=run_id,
+            recipient=rcpt,
+            event_key=key,
+            channel="digest-line",
+            content_hash=content_hash,
+            provider_status="sent",
+            error=None,
+            sent=True,
+        )
 
 
 def _already_sent(conn: Connection, run_id: str, rcpt: str, key: str) -> bool:

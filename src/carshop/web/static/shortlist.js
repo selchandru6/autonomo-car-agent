@@ -76,8 +76,32 @@
     } catch (err) { if (out) out.textContent = err.message; }
   });
 
+  // Saved-search controls: pause, resume, digest alerts, and delete (asks once in place).
+  const ACTS = {
+    pause: { paused: true }, resume: { paused: false },
+    "alerts-on": { alerts: true }, "alerts-off": { alerts: false },
+  };
+  document.addEventListener("click", async e => {
+    const btn = e.target.closest && e.target.closest("[data-search-act]");
+    if (!btn || btn.disabled) return;
+    const id = btn.dataset.searchId, act = btn.dataset.searchAct;
+    if (act === "delete" && !btn.dataset.confirm) {
+      btn.dataset.confirm = "1"; btn.textContent = "Delete this search?";
+      setTimeout(() => { delete btn.dataset.confirm; btn.textContent = "Delete"; }, 4000);
+      return;
+    }
+    btn.disabled = true;
+    try {
+      if (act === "delete") await call("DELETE", "/api/shortlist/searches/" + id);
+      else await call("PATCH", "/api/shortlist/searches/" + id, ACTS[act]);
+      if (btn.dataset.after) location.href = btn.dataset.after; else location.reload();
+    } catch (err) { toast(err.message); btn.disabled = false; }
+  });
+
   window.Shortlist = {
     writes: !!S.writes,
+    call,
+    toast,
     has: vin => saved.has(vin),
     button(vin) {
       if (!S.writes) return "";

@@ -126,6 +126,16 @@ AGENTS: tuple[AgentSpec, ...] = (
         tools=("pipeline.notify", "storage.backup"),
         writes=("notifications",),
     ),
+    AgentSpec(
+        id="A10",
+        name="Matcher",
+        stage="Match",
+        mode="deterministic",
+        graph="parent",
+        nodes=("matcher",),
+        tools=("shortlist.match", "storage.repos"),
+        writes=("matches",),
+    ),
 )
 
 

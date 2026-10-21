@@ -12,6 +12,7 @@
         <div class="muted text-sm"><a class="link" href="/dealers/{{ latest.dealer_id }}">{{ latest.dealer_name }}</a> · stock {{ latest.stock or '—' }} · seen {{ history | length }} time(s)</div>
         <div class="mt-3 flex flex-wrap gap-2">
           {{ save_button(vin, saved_vins, savable) }}
+          {% if savable %}<a class="chip c-info" href="/shortlist/searches/new?base={{ vin }}">Find cars like this</a>{% endif %}
           {% if latest.m_sport %}<span class="chip c-info">M Sport (ZMP)</span>{% endif %}
           {% if latest.in_transit %}<span class="chip c-partial">In transit</span>{% endif %}
         </div>
@@ -60,6 +61,34 @@
       </tbody>
     </table>
   </div>
+</section>
+
+<section class="panel p-5 space-y-3">
+  <h2 class="font-semibold">Your shortlist</h2>
+  {% if saved %}
+    {% set snap = saved.snapshot %}
+    <p class="text-sm">Saved {{ saved.saved_at[:10] }} as {{ snap.exterior_raw or 'paint not listed' }} / {{ snap.interior_raw or 'interior not listed' }} at {{ snap.comparison_price_cents | money if snap.comparison_price_cents is not none else 'no cash price' }}.</p>
+    {% if tracked and tracked.changed %}
+    <p class="text-sm">Since you saved it: <span class="chip {{ 'c-yes' if tracked.status == 'Listed' else 'c-partial' }}">{{ tracked.status }}</span> {{ tracked.change.label }}{% for f in tracked.feature_changes %} · {{ f }}{% endfor %}</p>
+    {% else %}
+    <p class="text-sm muted">Unchanged since you saved it.</p>
+    {% endif %}
+  {% elif savable %}
+  <p class="text-sm muted">Not on your shortlist yet.</p>
+  {% else %}
+  <p class="text-sm muted">This car is not validated yet, so it cannot be saved.</p>
+  {% endif %}
+  {% if matching %}
+  <p class="text-sm font-medium">Matching your searches</p>
+  <ul class="text-sm space-y-1">
+    {% for m in matching %}
+    <li><a class="link" href="/shortlist/searches/{{ m.search_id }}">{{ m.name }}</a>
+      · {% if m.tier == 'MATCH' %}Match{% else %}Possible match{% endif %}
+      · score {{ m.score }}
+      {% if m.is_new %}· New today{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
 </section>
 
 <section class="grid xl:grid-cols-2 gap-6">

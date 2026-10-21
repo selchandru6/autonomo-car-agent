@@ -1,7 +1,8 @@
 """FastAPI screen for a single operator (requirements 2, 11).
 
 Reads committed rows only. Every number links to the observation rows behind it. The only
-writes are the owner's saved cars (requirements-shortlist.md §9), behind `_write_guard`.
+writes are the owner's saved cars and saved searches (requirements-shortlist.md §9), behind
+`_write_guard`.
 """
 
 from __future__ import annotations
@@ -12,9 +13,11 @@ import json
 import secrets
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
@@ -29,11 +32,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from carshop import __version__
 from carshop.catalog.features import FEATURES
-from carshop.config.loaders import load_preferences
+from carshop.config.loaders import load_locator_coords, load_preferences
 from carshop.config.settings import Settings, get_settings
 from carshop.domain.pricing import fmt_cents
 from carshop.export.export import export_run
+from carshop.shortlist import match as sm
 from carshop.shortlist import saved as sl
+from carshop.shortlist import searches as ss
 from carshop.storage import migrate, repos
 from carshop.storage import schema as s
 from carshop.storage.db import make_engine, read_conn, write_tx
@@ -41,7 +46,7 @@ from carshop.util import git_sha
 from carshop.web import search, shell, views
 
 _HERE = Path(__file__).parent
-SHORTLIST_TABS = ("saved", "ranked")
+SHORTLIST_TABS = ("new", "saved", "searches", "ranked")
 
 
 def is_loopback(host: str) -> bool:
@@ -60,6 +65,21 @@ class SaveCar(BaseModel):
 
 class CarNote(BaseModel):
     note: str | None = None
+
+
+class SearchIn(BaseModel):
+    """Criteria, or a Find a car wish list (same schema, §5.1)."""
+
+    name: str | None = None
+    criteria: dict[str, Any] | None = None
+    wish: dict[str, Any] | None = None
+    alerts: bool | None = None
+    paused: bool | None = None
+
+    def to_criteria(self) -> dict[str, Any] | None:
+        if self.criteria is not None:
+            return self.criteria
+        return sm.criteria_from_wish(self.wish) if self.wish is not None else None
 
 
 # Menu pages whose full build lands in a later delivery step (requirements-web-ui.md §12).
@@ -186,18 +206,48 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                 return JSONResponse(fn(c))
         except sl.ShortlistError as e:
             return JSONResponse({"error": e.message}, status_code=e.status)
+        except sm.CriteriaError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
         except OperationalError as e:
             if "locked" in str(e).lower() or "busy" in str(e).lower():
                 return JSONResponse({"error": sl.BUSY}, status_code=503)
             raise
 
+    def _geo(c: Connection) -> ss.Geo:
+        return ss.Geo(c, load_locator_coords(st.registry_dir))
+
+    def _search_form(
+        request: Request, c: Connection, name: str, criteria: dict[str, Any],
+        search: dict[str, Any] | None = None, alerts: bool = True,
+    ) -> Response:  # fmt: skip
+        geo = _geo(c)
+        cars = ss.candidates(c, geo)
+        ext = sorted({str(x["ext_name"]) for x in cars} | set(criteria["exterior"]["names"]))
+        inner = sorted({str(x["int_name"]) for x in cars} | set(criteria["interior"]["names"]))
+        return render(
+            "search_form.html",
+            _ctx(request, c, None, search=search, name=name, criteria=criteria, alerts=alerts,
+                 cities=sorted(geo.centroids), ext_names=ext, int_names=inner,
+                 features=[(f, sm.SHORT[f]) for f in sm.FEATURES], radii=sm.RADII,
+                 ext_families=sm.EXTERIOR_FAMILY_NAMES, int_families=sm.INTERIOR_FAMILY_NAMES),
+        )  # fmt: skip
+
     # ------------------------------------------------------------------ pages
     @app.get("/", response_class=HTMLResponse)
-    def finder(request: Request, view: str | None = None) -> Response:
+    def finder(request: Request, view: str | None = None, search: int | None = None) -> Response:
         if view == "check":
             return RedirectResponse(url="/check", status_code=301)
         with conn() as c:
             payload = views.buyer_payload(c, st.registry_dir)
+            latest = repos.latest_published_run(c)
+            payload["newFor"] = ss.new_tags(c, str(latest["run_id"]) if latest else None)
+            opened = ss.get_search(c, search) if search is not None else None
+            if opened is not None:
+                payload["openSearch"] = {
+                    "id": opened["search_id"], "name": opened["name"],
+                    "wish": sm.wish_from_criteria(opened["criteria"]),
+                    "band": opened["criteria"]["band_cents"] is not None,
+                }  # fmt: skip
             return render("finder.html", _ctx(request, c, None, payload=payload))
 
     @app.get("/operator")
@@ -343,9 +393,12 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                     .order_by(s.price_events.c.price_event_id)
                 )
             ]
+            saved = sl.get_saved(c, vin)
+            tracked = sl.track(c, saved) if saved else None
             return render(
                 "vin.html",
-                _ctx(request, c, run, vin=vin, history=history, saved=sl.get_saved(c, vin),
+                _ctx(request, c, run, vin=vin, history=history, saved=saved, tracked=tracked,
+                     matching=ss.matches_for_vin(c, vin),
                      savable=sl.latest_validated(c, vin) is not None, latest=latest, features=feats.get(int(latest["observation_id"]), []),
                      prices=prices.get(int(latest["observation_id"]), []), lifecycle=lifecycle, price_events=pe,
                      series=[{"date": h["snapshot_date"], "dealer": h["dealer_name"], "price": (h["comparison_price_cents"] or 0) / 100 if h["comparison_price_cents"] else None, "msrp": (h["msrp_cents"] or 0) / 100 if h["msrp_cents"] else None} for h in history]),
@@ -355,14 +408,18 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     def shortlist(request: Request, run_id: str | None = None, tab: str | None = None) -> Response:
         with conn() as c:
             tracked = sl.track_all(c)
-            if tab not in SHORTLIST_TABS:
-                tab = "saved" if tracked else "ranked"
+            searches = ss.overview(c)
             run = _latest(c, run_id)
-            if tab == "saved":
+            events = ss.new_events(c, str(run["run_id"]) if run else None)
+            new_n = sum(len(g["rows"]) for g in events)
+            if tab not in SHORTLIST_TABS:
+                tab = "new" if events else "saved" if tracked else "searches" if searches else "ranked"
+            if tab in ("new", "saved", "searches"):
                 return render(
                     "shortlist.html",
-                    _ctx(request, c, run, tab=tab, tracked=tracked, max_saved=sl.MAX_SAVED_CARS),
-                )
+                    _ctx(request, c, run, tab=tab, tracked=tracked, max_saved=sl.MAX_SAVED_CARS,
+                         searches=searches, max_searches=ss.MAX_SEARCHES, new_events=events, new_n=new_n),
+                )  # fmt: skip
             if run is None:
                 return render("empty.html", _ctx(request, c, None, state="no_runs"))
             units = views.load_units(c, str(run["run_id"]), prefs)
@@ -390,8 +447,55 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                     compare_vins=compare_vins,
                     tab=tab,
                     tracked=tracked,
+                    searches=searches,
+                    new_events=events,
+                    new_n=new_n,
+                    max_saved=sl.MAX_SAVED_CARS,
+                    max_searches=ss.MAX_SEARCHES,
                 ),
             )
+
+    @app.get("/shortlist/searches/new", response_class=HTMLResponse)
+    def search_new(request: Request, base: str | None = None) -> Response:
+        with conn() as c:
+            if not base:
+                return _search_form(request, c, "", sm.default_criteria())
+            vin = base.strip().upper()
+            saved = sl.get_saved(c, vin)
+            obs = sl.latest_validated(c, vin)
+            if obs is None:
+                raise HTTPException(404, "That car has not been read in a daily check yet.")
+            snap = saved["snapshot"] if saved else sl.build_snapshot(c, obs)
+            name, criteria = sm.prefill_from_snapshot(snap, obs.get("city"))
+            return _search_form(request, c, name, criteria)
+
+    @app.get("/shortlist/searches/{search_id}/edit", response_class=HTMLResponse)
+    def search_edit(request: Request, search_id: int) -> Response:
+        with conn() as c:
+            found = ss.get_search(c, search_id)
+            if found is None:
+                raise HTTPException(404, "That search is not on your shortlist.")
+            return _search_form(
+                request,
+                c,
+                found["name"],
+                found["criteria"],
+                search=found,
+                alerts=bool(found["alerts"]),
+            )
+
+    @app.get("/shortlist/searches/{search_id}", response_class=HTMLResponse)
+    def search_page_detail(request: Request, search_id: int) -> Response:
+        with conn() as c:
+            found = ss.get_search(c, search_id)
+            if found is None:
+                raise HTTPException(404, "That search is not on your shortlist.")
+            evaluated, rows = ss.current_matches(c, search_id)
+            return render(
+                "search_detail.html",
+                _ctx(request, c, None, search=found, summary=sm.summary(found["criteria"]),
+                     evaluated_at=evaluated, matches=rows),
+            )  # fmt: skip
 
     @app.get("/trends", response_class=HTMLResponse)
     def trends(request: Request, days: int = 90, run_id: str | None = None) -> Response:
@@ -585,6 +689,61 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                 "removed": removed,
                 "count": len(sl.saved_vins(c)),
             }
+
+        return _write(go)
+
+    # ------------------------------------------------------------------ the owner's saved searches
+    @app.post("/api/shortlist/searches/preview", dependencies=[Depends(_write_guard)])
+    def api_search_preview(body: SearchIn) -> JSONResponse:
+        """Dry run with the same matcher the daily run uses. Writes nothing."""
+        try:
+            criteria = body.to_criteria() or sm.default_criteria()
+            with conn() as c:
+                return JSONResponse(ss.preview(c, criteria, _geo(c)))
+        except sm.CriteriaError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+    @app.post("/api/shortlist/searches", dependencies=[Depends(_write_guard)])
+    def api_create_search(body: SearchIn) -> JSONResponse:
+        def go(c: Connection) -> dict[str, Any]:
+            criteria = body.to_criteria() or sm.default_criteria()
+            now = datetime.now(ZoneInfo(st.schedule_tz))
+            today = f"{now.strftime('%b')} {now.day}"
+            name = body.name or (ss.wish_search_name(today) if body.wish is not None else "")
+            found, counts = ss.create_search(
+                c, name, criteria, _geo(c), alerts=True if body.alerts is None else body.alerts
+            )
+            sid = int(found["search_id"])
+            return {
+                "search_id": sid,
+                "name": found["name"],
+                "url": f"/shortlist/searches/{sid}",
+                **counts,
+            }
+
+        return _write(go)
+
+    @app.patch("/api/shortlist/searches/{search_id}", dependencies=[Depends(_write_guard)])
+    def api_update_search(search_id: int, body: SearchIn) -> JSONResponse:
+        def go(c: Connection) -> dict[str, Any]:
+            found, counts = ss.update_search(
+                c, search_id, _geo(c), name=body.name, criteria=body.to_criteria(),
+                paused=body.paused, alerts=body.alerts,
+            )  # fmt: skip
+            return {
+                "search_id": search_id, "name": found["name"], "paused": bool(found["paused"]),
+                "alerts": bool(found["alerts"]), "url": f"/shortlist/searches/{search_id}",
+                "rebaselined": counts is not None, **(counts or {}),
+            }  # fmt: skip
+
+        return _write(go)
+
+    @app.delete("/api/shortlist/searches/{search_id}", dependencies=[Depends(_write_guard)])
+    def api_remove_search(search_id: int) -> JSONResponse:
+        def go(c: Connection) -> dict[str, Any]:
+            if not ss.remove_search(c, search_id):
+                raise sl.ShortlistError(404, "That search is not on your shortlist.")
+            return {"search_id": search_id, "removed": True}
 
         return _write(go)
 

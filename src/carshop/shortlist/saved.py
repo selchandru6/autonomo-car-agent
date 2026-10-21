@@ -21,10 +21,11 @@ from carshop.domain.codes import (
     RunStatus,
     StagingStatus,
 )
+from carshop.domain.display import index_features as _index_features
+from carshop.domain.display import price_gap_reason
 from carshop.domain.pricing import fmt_cents
 from carshop.storage import repos
 from carshop.storage import schema as s
-from carshop.web.views import _index_features, price_gap_reason
 
 Row = dict[str, Any]
 
@@ -91,9 +92,19 @@ def validated_history(conn: Connection, vin: str) -> list[Row]:
     latest: dict[tuple[str, str], Row] = {}
     for m in conn.execute(q).mappings():
         row = dict(m)
-        row["flags"] = json.loads(row["flags"] or "[]")
         latest[(row["run_id"], row["dealer_id"])] = row
-    return list(latest.values())
+    rows = list(latest.values())
+    extra: dict[int, set[str]] = {}
+    ids = [int(x["observation_id"]) for x in rows]
+    if ids:
+        flags_q = select(s.observation_flags.c.observation_id, s.observation_flags.c.flag)
+        for oid, flag in conn.execute(flags_q.where(s.observation_flags.c.observation_id.in_(ids))):
+            extra.setdefault(int(oid), set()).add(str(flag))
+    for x in rows:
+        x["flags"] = sorted(
+            set(json.loads(x["flags"] or "[]")) | extra.get(int(x["observation_id"]), set())
+        )
+    return rows
 
 
 def savable_vins(conn: Connection, vins: list[str]) -> set[str]:
@@ -445,3 +456,19 @@ def digest_lines(conn: Connection, run_id: str) -> list[str]:
         if e["vin"] in saved and e["to_state"] in words:
             lines.append(f"    {e['vin']} · {e['dealer_name']} · {words[e['to_state']]}")
     return lines
+
+
+def digest_watch_keys(conn: Connection, run_id: str) -> list[str]:
+    """`watch:{vin}:{event}:{run_id}` keys for the saved-car digest lines (§7.3)."""
+    saved = {str(sc["vin"]) for sc in active_saved(conn)}
+    keys: list[str] = []
+    for e in repos.price_events_for_run(conn, run_id):
+        if e["vin"] in saved:
+            keys.append(f"watch:{e['vin']}:price:{run_id}")
+    for e in repos.lifecycle_for_run(conn, run_id):
+        if e["vin"] in saved and e["to_state"] in (
+            LifecycleState.MISSING_UNVERIFIED.value,
+            LifecycleState.RELISTED.value,
+        ):
+            keys.append(f"watch:{e['vin']}:{e['to_state']}:{run_id}")
+    return keys

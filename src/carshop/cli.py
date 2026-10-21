@@ -124,6 +124,110 @@ def shortlist_remove(vin: str) -> None:
     rprint(f"[green]removed[/green] {vin.upper()}" if removed else f"{vin.upper()} was not saved")
 
 
+search_app = typer.Typer(
+    help="Your saved searches (requirements-shortlist.md §9: CLI parity).", no_args_is_help=True
+)
+app.add_typer(search_app, name="search")
+
+
+@search_app.command("list")
+def search_list() -> None:
+    """Saved searches with their current Match and Possible match counts."""
+    from carshop.shortlist.searches import overview
+
+    _, eng = _engine()
+    with read_conn(eng) as conn:
+        rows = overview(conn)
+    if not rows:
+        rprint("No saved searches yet.")
+        return
+    table = Table("id", "name", "state", "match", "possible", "new today", "checked")
+    for r in rows:
+        state = ("paused" if r["paused"] else "active") + ("" if r["alerts"] else ", no alerts")
+        table.add_row(
+            str(r["search_id"]), str(r["name"]), state, str(r["match"]), str(r["possible"]),
+            str(r["new_today"]), str(r["evaluated_at"] or "—"),
+        )  # fmt: skip
+    console.print(table)
+
+
+@search_app.command("show")
+def search_show(search_id: int) -> None:
+    """One search: its criteria in plain words and every current match with its reasons."""
+    from carshop.shortlist.match import summary
+    from carshop.shortlist.searches import current_matches, get_search
+
+    _, eng = _engine()
+    with read_conn(eng) as conn:
+        found = get_search(conn, search_id)
+        if found is None:
+            rprint(f"[red]No saved search {search_id}.[/red]")
+            raise typer.Exit(1)
+        evaluated, rows = current_matches(conn, search_id)
+    rprint(f"[bold]{found['name']}[/bold]" + (" (paused)" if found["paused"] else ""))
+    rprint("  " + " · ".join(summary(found["criteria"])))
+    rprint(f"  checked {evaluated or 'not yet'}")
+    table = Table("tier", "score", "vin", "dealer", "price", "reasons")
+    for r in rows:
+        price = f"${r['price'] / 100:,.0f}" if r["price"] is not None else "—"
+        table.add_row(
+            "Match" if r["tier"] == "MATCH" else "Possible", str(r["score"]), str(r["vin"]),
+            str(r["dealer_name"]), price, ", ".join(x["t"] for x in r["reasons"]),
+        )  # fmt: skip
+    console.print(table)
+
+
+def _set_paused(search_id: int, paused: bool) -> None:
+    from carshop.shortlist.saved import ShortlistError
+    from carshop.shortlist.searches import update_search
+    from carshop.storage.db import write_tx
+
+    _, eng = _engine()
+    try:
+        with write_tx(eng) as conn:
+            update_search(conn, search_id, None, paused=paused)
+    except ShortlistError as e:
+        rprint(f"[red]{e.message}[/red]")
+        raise typer.Exit(1) from e
+    rprint(f"[green]{'paused' if paused else 'resumed'}[/green] search {search_id}")
+
+
+@search_app.command("pause")
+def search_pause(search_id: int) -> None:
+    """Stop checking this search after daily runs (its matches stay)."""
+    _set_paused(search_id, True)
+
+
+@search_app.command("resume")
+def search_resume(search_id: int) -> None:
+    """Check this search again after daily runs."""
+    _set_paused(search_id, False)
+
+
+@app.command()
+def match(
+    run_id: str | None = typer.Option(None, "--run-id", help="Defaults to the latest published run"),
+) -> None:
+    """Recompute saved-search matches for a published run (requirements-shortlist.md §6.2)."""
+    from carshop.config.loaders import load_locator_coords
+    from carshop.shortlist.searches import Geo, evaluate_run
+
+    st, eng = _engine()
+    with read_conn(eng) as conn:
+        rid = run_id or (repos.latest_published_run(conn) or {}).get("run_id")
+        if not rid:
+            rprint("[red]no published run[/red]")
+            raise typer.Exit(1)
+    from carshop.storage.db import write_tx
+
+    with write_tx(eng) as conn:
+        counts = evaluate_run(conn, str(rid), Geo(conn, load_locator_coords(st.registry_dir)))
+    rprint(
+        f"[green]matched[/green] run {rid}: {counts['searches']} searches, "
+        f"{counts['match']} match, {counts['possible']} possible, {counts['new']} new"
+    )
+
+
 def _operator(explicit: str | None) -> str:
     import getpass
 

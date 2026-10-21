@@ -11,6 +11,7 @@ from langgraph.graph import END, START, StateGraph
 
 from carshop.agents.comparator import comparator
 from carshop.agents.dealer_branch import dealer_branch
+from carshop.agents.matcher import matcher
 from carshop.agents.notifier import notifier
 from carshop.agents.registry import registry_check, registry_route, registry_subgraph
 from carshop.agents.supervisor import (
@@ -36,6 +37,7 @@ def build_run_graph() -> StateGraph[RunState, RunContext, RunState, RunState]:
     g.add_node("supervisor_cutoff", supervisor_cutoff)
     g.add_node("comparator", comparator)
     g.add_node("supervisor_publish", supervisor_publish)
+    g.add_node("matcher", matcher)
     g.add_node("notifier", notifier)
 
     g.add_edge(START, "supervisor_admit")
@@ -48,6 +50,7 @@ def build_run_graph() -> StateGraph[RunState, RunContext, RunState, RunState]:
     g.add_edge("dealer_branch", "supervisor_cutoff")
     g.add_edge("supervisor_cutoff", "comparator")
     g.add_edge("comparator", "supervisor_publish")
-    g.add_edge("supervisor_publish", "notifier")
+    g.add_edge("supervisor_publish", "matcher")
+    g.add_edge("matcher", "notifier")
     g.add_edge("notifier", END)
     return g

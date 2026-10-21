@@ -1,6 +1,6 @@
 """Run entry points: one run through the compiled agent graph (requirements-mas.md §4).
 
-Admission, fan-out with bounded concurrency, the dealer subgraph, compare, publish, notify,
+Admission, fan-out with bounded concurrency, the dealer subgraph, compare, publish, match, notify,
 and backup are graph nodes in `carshop.agents`. `execute_run` starts a run; `resume_run`
 continues an interrupted one from its checkpoint, or abandons it and starts a fresh run when
 the code changed since the checkpoint was written (§5 invariant 6).

@@ -48,7 +48,11 @@ _BY_HREF = {item.href: item for item in MENU}
 
 # Detail pages are not in the menu. Their breadcrumb parent is the page the user came
 # from when that page is in the menu, else this default.
-_DETAIL_PARENT: tuple[tuple[str, str], ...] = (("/vin/", "/inventory"), ("/dealers/", "/dealers"))
+_DETAIL_PARENT: tuple[tuple[str, str], ...] = (
+    ("/vin/", "/inventory"),
+    ("/dealers/", "/dealers"),
+    ("/shortlist/", "/shortlist"),
+)
 
 
 def item_for(path: str) -> Item | None:
@@ -72,6 +76,9 @@ def menu(path: str, picked_run_id: str | None, status: dict[str, Any]) -> list[d
             elif item.href == "/health" and status["not_reported"]:
                 n = status["not_reported"]
                 badge = {"n": n, "tone": "bad", "label": f"{n} dealers not read in this run"}
+            elif item.href == "/shortlist" and status.get("new_matches"):
+                n = status["new_matches"]
+                badge = {"n": n, "tone": "ok", "label": f"{n} new matches today"}
             entries.append(
                 {
                     "label": item.label,
@@ -116,6 +123,9 @@ def status(
             if d["status"] != DealerStatus.REPORTED.value
         )
         pending = repos.pending_review_count(conn, sid)
+    from carshop.shortlist.searches import new_count
+
+    new_matches = new_count(conn, str(shown["run_id"]) if shown else None)
     rows = repos.coverage(conn)
     active = [r for r in rows if r["active"]]
     run: dict[str, Any] | None = None
@@ -139,4 +149,5 @@ def status(
         "model": "on" if model_enabled else "off, rules only",
         "pending": pending,
         "not_reported": not_reported,
+        "new_matches": new_matches,
     }
