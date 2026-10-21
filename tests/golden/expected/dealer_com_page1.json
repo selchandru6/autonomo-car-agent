@@ -1,0 +1,20 @@
+{
+  "eligible": {
+    "5UX23EU0XT9513990": {
+      "comparison_price_cents": 7840000,
+      "dap": "UNKNOWN",
+      "exterior_code": "475",
+      "flags": [
+        "DAP_UNKNOWN",
+        "IN_TRANSIT"
+      ],
+      "in_transit": true,
+      "interior_code": "KPA9",
+      "m_sport": false,
+      "msrp_cents": 8025000
+    }
+  },
+  "excluded": {
+    "5UX33EU08T9000015": "POWERTRAIN_OTHER"
+  }
+}

@@ -1,0 +1,88 @@
+# Operator overrides for the generated dealer registry (requirements 7.1, F25).
+#
+# The registry itself is built by `carshop registry refresh` from the BMW USA dealer locator
+# (every Texas BMW dealer) plus automatic inventory-URL discovery. Nothing here adds or
+# approves a dealer. An entry only overrides what discovery found for one center number:
+# the hostname (when the locator prints none or the wrong one), the X5 start URL, the path
+# prefixes, the platform, or sticker hosts.
+#
+# Every entry is a privileged edit (section 3): `operator` and `set_at` are required and are
+# written to the dealer row's notes and to audit_events when the registry is applied.
+#
+# Center numbers are the locator's `centerID`; run `carshop registry show` to list them.
+#
+# Centers below had no usable locator website (review 2026-10-20 registry gaps, section A).
+# Each start URL is the one in that review, after the "check before use" items. A 403 is
+# kept: the dealer is attempted and the block stays visible. Year-filtered and trim-filtered
+# homepage links are not used (Lubbock year=2027, Wichita Falls sDrive40i).
+overrides:
+  - center_number: "50923"   # Sewell BMW of Plano (locator name "BMW of Plano"; no website in locator)
+    operator: owner
+    set_at: "2026-10-20T00:00:00+00:00"
+    hostname: www.bmwofplano.com
+    start_url: https://www.bmwofplano.com/new-vehicles/x5/
+    path_prefixes: ["/new-vehicles/", "/inventory/"]
+    platform: dealer_inspire
+    notes: "Sewell store-specific site; verify no sister-store units (review A.1)"
+
+  - center_number: "52938"   # BMW of McKinney (Hendrick)
+    operator: owner
+    set_at: "2026-10-20T00:00:00+00:00"
+    hostname: www.bmwofmckinney.com
+    start_url: https://www.bmwofmckinney.com/new-vehicles/x5/
+    path_prefixes: ["/new-vehicles/", "/inventory/"]
+    platform: dealer_inspire
+
+  - center_number: "44235"   # BMW of South Austin (Hendrick)
+    operator: owner
+    set_at: "2026-10-20T00:00:00+00:00"
+    hostname: www.bmwofsouthaustin.com
+    start_url: https://www.bmwofsouthaustin.com/new-inventory/index.htm?model=X5
+    path_prefixes: ["/new-inventory/", "/new/"]
+    platform: dealer_com
+    notes: "403 to reviewer's fetcher; a block is NOT_REPORTED/HTTP_403, never bypassed (review A.3)"
+
+  - center_number: "51029"   # Advantage BMW Clear Lake (locator name "BMW of Clear Lake")
+    operator: owner
+    set_at: "2026-10-20T00:00:00+00:00"
+    hostname: www.bmwofclearlake.com
+    start_url: https://www.bmwofclearlake.com/new-vehicles/x5/
+    path_prefixes: ["/new-vehicles/", "/inventory/"]
+    platform: dealer_inspire
+    notes: "X5 filter may be client-side; confirm all pages read (review A.4)"
+
+  - center_number: "53089"   # BMW of Beaumont (Doggett) - RideMotive, no dedicated adapter
+    operator: owner
+    set_at: "2026-10-21T00:07:00+00:00"
+    hostname: bmwofbeaumont.com
+    start_url: "https://bmwofbeaumont.com/cars/new-inventory?filters=%7B%22sortBy%22%3A%7B%22option%22%3A%7B%22label%22%3A%22Price%22%2C%22value%22%3A%22price%22%2C%22type%22%3A%22value%22%7D%2C%22direction%22%3A%22asc%22%7D%2C%22appliedFilters%22%3A%7B%22model%22%3A%7B%22value%22%3A%7B%22X5%22%3Atrue%2C%22X5+M%22%3Atrue%7D%7D%7D%7D"
+    path_prefixes: ["/cars/", "/inventory/"]
+    platform: other
+    notes: "Owner supplied the X5 list on the apex host. www robots.txt redirects off-host, so the registered host is the apex. That robots.txt allows /cars/ for User-agent * (crawl-delay 10)."
+
+  - center_number: "50857"   # BMW of Lubbock
+    operator: owner
+    set_at: "2026-10-20T00:00:00+00:00"
+    hostname: www.bmwoflubbock.com
+    start_url: https://www.bmwoflubbock.com/new-inventory/index.htm?model=X5
+    path_prefixes: ["/new-inventory/", "/new/"]
+    platform: dealer_com
+    notes: "Do NOT use the homepage X5 link: it is year=2027-filtered (review A.6)"
+
+  - center_number: "54314"   # BMW of Wichita Falls (Grubbs)
+    operator: owner
+    set_at: "2026-10-20T00:00:00+00:00"
+    hostname: www.bmwwichitafalls.com
+    start_url: https://www.bmwwichitafalls.com/searchnew.aspx?Make=BMW&Model=X5
+    path_prefixes: ["/searchnew.aspx", "/new-", "/inventory/"]
+    platform: dealeron
+    notes: "Do NOT use the homepage X5 link: it is sDrive40i-filtered (review A.7)"
+
+  - center_number: "43380"   # BMW of College Station - locator host bmwofbrazosvalley.com is dead
+    operator: owner
+    set_at: "2026-10-20T00:00:00+00:00"
+    hostname: www.bmwofcollegestation.com
+    start_url: https://www.bmwofcollegestation.com/search/new-bmw-x5-college-station-tx/?cy=77845&md=38&tp=new
+    path_prefixes: ["/search/", "/inventory/", "/new-"]
+    platform: unknown
+    notes: "Platform likely dealerfire - confirm; 403 to reviewer's fetcher (review A.8)"

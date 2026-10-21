@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}Find a car{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/finder.css">{% endblock %}
+{% block heading %}Find a car{% endblock %}
+{% block content %}
+<div class="finder">
+  <p class="intro"><span class="live-dot" aria-hidden="true"></span>One daily pass: read the dealer sites, keep the listings that check out, then choose a car. Checked <span id="asof"></span>.</p>
+  <section class="flow" aria-label="Daily workflow">
+    <ol>
+      <li><a href="/pipeline"><span class="step">1 · Collect</span><strong>{{ payload.flow.checked }} of {{ payload.flow.dealers }} dealers</strong><span class="note">Every day at {{ payload.flow.when }}</span></a></li>
+      <li><a href="/check"><span class="step">2 · Check</span><strong>{{ payload.flow.kept }} cars kept</strong><span class="note">Only listings we can trust</span></a></li>
+      <li><a href="#resTitle"><span class="step">3 · Choose</span><strong id="flowChoose">Your wish list</strong><span class="note" id="flowChooseNote">See which cars fit</span></a></li>
+      <li><a href="/check"><span class="step">4 · Update</span><strong>Once a day</strong><span class="note">Next pass at {{ payload.flow.when }}</span></a></li>
+    </ol>
+  </section>
+  <div class="layout">
+    <details class="rail" id="rail" open>
+      <summary><h2>My wish list</h2><span class="hint">Saved on this device</span></summary>
+      <div class="rail-body">
+        <div class="group">
+          <h3>Budget</h3>
+          <div class="budget-out num" id="budgetOut"></div>
+          <input type="range" id="budget" min="74000" max="94000" step="500" aria-label="Maximum price">
+          <p class="note">Cash price before tax, title and dealer fees.</p>
+        </div>
+        <div class="group">
+          <h3>Location</h3>
+          <label class="note" for="near">I'm near</label>
+          <select id="near"></select>
+          <div class="row" id="radius" style="margin-top:8px"></div>
+        </div>
+        <div class="group">
+          <h3>Packages</h3>
+          <div class="pk" id="pkgs"></div>
+          <p class="note" style="margin-top:8px"><b>Must</b> = only show cars where the dealer lists it. <b>Nice</b> = rank those cars higher.</p>
+        </div>
+        <div class="group">
+          <h3>Exterior colors I like</h3>
+          <div class="row" id="extChips"></div>
+        </div>
+        <div class="group">
+          <h3>Interior colors I like</h3>
+          <div class="row" id="intChips"></div>
+          <label class="check" style="margin-top:8px"><input type="checkbox" id="colorsOnly"> Only show these colors</label>
+        </div>
+        <div class="group">
+          <h3>Availability</h3>
+          <label class="check"><input type="checkbox" id="transit"> Include cars still on the way to the dealer</label>
+        </div>
+        <button class="reset" id="reset" type="button">Reset to my saved preferences</button>
+        {% if shortlist_writes %}<button class="reset" id="saveWish" type="button">Save this wish list as a search</button>{% endif %}
+        <p class="note" id="openedSearch" role="status" hidden></p>
+      </div>
+    </details>
+    <div class="fmain">
+      <section class="panel" aria-label="Summary">
+        <div class="answer">
+          <div class="lead"><div class="big num" id="aMatch"></div><div class="lbl" id="aMatchLbl"></div></div>
+          <div><div class="big num" id="aLow"></div><div class="lbl" id="aLowLbl"></div></div>
+          <div><div class="big num" id="aTypical"></div><div class="lbl" id="aTypicalLbl"></div></div>
+          <div><div class="big" id="aTrend" style="font-size:26px"></div><div class="lbl" id="aTrendLbl"></div></div>
+        </div>
+      </section>
+      <section class="panel" aria-labelledby="rangeTitle">
+        <h2 id="rangeTitle">Price range today</h2>
+        <p class="sub">The cheapest and the most expensive car in Texas, whatever your wish list says.</p>
+        <div id="range"></div>
+      </section>
+      <section class="panel" aria-labelledby="bandTitle">
+        <h2 id="bandTitle">Where prices sit today</h2>
+        <p class="sub">Each dot is one car for sale. Filled dots fit your wish list.</p>
+        <div class="chart" id="band"></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>Fits your wish list</span><span><i style="background:var(--dim)"></i>Other cars</span><span id="legBudget"></span></div>
+      </section>
+      <section class="panel" aria-labelledby="resTitle">
+        <div class="results-head">
+          <h2 id="resTitle">Cars for you</h2>
+          <label class="sort" for="sort">Sort by
+            <select id="sort">
+              <option value="match">Best match</option>
+              <option value="price">Lowest price</option>
+              <option value="near">Nearest</option>
+            </select>
+          </label>
+        </div>
+        <div id="results"></div>
+      </section>
+      <section class="panel" aria-labelledby="trendTitle">
+        <h2 id="trendTitle">Price changes</h2>
+        <p class="sub" id="trendSub"></p>
+        <div id="trendBody"></div>
+      </section>
+    </div>
+  </div>
+  <p class="note">Cash price before tax, title and dealer fees. The list is replaced once a day at {{ payload.flow.when }}. <a href="/check">See today's check</a>.</p>
+  <div class="tray" id="tray" hidden>
+    <div class="tray-head"><b id="trayTitle"></b><span style="display:flex;gap:8px"><button type="button" id="trayToggle">Hide</button><button type="button" id="trayClear">Clear</button></span></div>
+    <div class="tray-table" id="trayTable"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script type="application/json" id="finderData">{{ payload | tojson_safe }}</script>
+<script src="/static/finder.js"></script>
+{% endblock %}

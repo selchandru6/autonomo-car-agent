@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% from "_macros.html" import tri, status, save_button %}
+{% block heading %}<span class="font-mono">{{ vin }}</span>{% endblock %}
+{% block content %}
+
+<section class="grid xl:grid-cols-3 gap-6">
+  <div class="panel p-5 xl:col-span-2">
+    <div class="flex flex-wrap items-start gap-4">
+      {% if latest.image_url %}<img src="{{ latest.image_url }}" alt="" class="h-28 w-44 object-cover rounded-xl border" loading="lazy">{% endif %}
+      <div class="flex-1 min-w-[16rem]">
+        <div class="text-2xl font-semibold">New {{ latest.year }} BMW {{ latest.model }} {{ latest.trim }}</div>
+        <div class="muted text-sm"><a class="link" href="/dealers/{{ latest.dealer_id }}">{{ latest.dealer_name }}</a> · stock {{ latest.stock or '—' }} · seen {{ history | length }} time(s)</div>
+        <div class="mt-3 flex flex-wrap gap-2">
+          {{ save_button(vin, saved_vins, savable) }}
+          {% if savable %}<a class="chip c-info" href="/shortlist/searches/new?base={{ vin }}">Find cars like this</a>{% endif %}
+          {% if latest.m_sport %}<span class="chip c-info">M Sport (ZMP)</span>{% endif %}
+          {% if latest.in_transit %}<span class="chip c-partial">In transit</span>{% endif %}
+        </div>
+      </div>
+      <div class="text-right">
+        <div class="text-[11px] uppercase tracking-wider muted">Cash price</div>
+        <div class="text-3xl font-semibold tabular-nums {{ 'good' if latest.comparison_price_cents else 'muted' }}">{{ latest.comparison_price_cents | money }}</div>
+        <div class="text-xs muted">MSRP {{ latest.msrp_cents | money }} · advertised {{ latest.advertised_price_cents | money }}</div>
+      </div>
+    </div>
+    <dl class="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+      {% for k, v in [('Exterior', (latest.exterior_raw or '—') ~ ' (' ~ (latest.exterior_code or 'unmapped') ~ ')'), ('Interior', (latest.interior_raw or '—') ~ ' (' ~ (latest.interior_code or 'unknown') ~ ')'),
+                      ('Odometer', (latest.odometer_miles ~ ' mi') if latest.odometer_miles is not none else 'not shown'), ('Availability', latest.availability | replace('_', ' ') | capitalize)] %}
+      <div><dt class="text-[11px] uppercase tracking-wider muted">{{ k }}</dt><dd class="mt-0.5 break-all">{{ v }}</dd></div>
+      {% endfor %}
+    </dl>
+    <div class="mt-5 flex flex-wrap gap-3 text-xs">
+      <a class="link hover:underline" href="{{ latest.detail_url or latest.source_url }}" target="_blank" rel="noopener">dealer detail page ↗</a>
+      <a class="link hover:underline" href="{{ latest.source_url }}" target="_blank" rel="noopener">listing page ↗</a>
+      {% if latest.sticker_url %}<a class="link hover:underline" href="{{ latest.sticker_url }}" target="_blank" rel="noopener">window sticker ↗</a>{% endif %}
+    </div>
+    {% if shortlist_writes %}
+    <form class="mt-5 text-sm" data-note="{{ vin }}" id="noteForm"{% if not saved %} hidden{% endif %}>
+      <label class="text-[11px] uppercase tracking-wider muted" for="noteText">Your note</label>
+      <div class="mt-1 flex flex-wrap items-start gap-2">
+        <textarea id="noteText" name="note" maxlength="280" rows="2" class="flex-1 min-w-[16rem] panel p-2 text-sm" placeholder="Anything to remember about this car (up to 280 characters)">{{ saved.note if saved and saved.note else '' }}</textarea>
+        <button type="submit" class="chip c-info">Save note</button>
+      </div>
+      <div class="text-xs muted mt-1" data-note-status aria-live="polite"></div>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="panel p-5">
+    <h2 class="font-semibold">Price components</h2>
+    <p class="text-xs muted mt-1">Stored separately. Ranking uses the unconditional advertised price only.</p>
+    <table class="w-full text-sm mt-3 compact">
+      <tbody>
+      {% for p in prices %}
+      <tr class="border-t">
+        <td><span class="chip c-flag">{{ p.kind | replace('_', ' ') | capitalize }}</span></td>
+        <td>{{ p.label }}</td>
+        <td class="text-right tabular-nums {{ 'good' if p.kind == 'ADVERTISED' else '' }}">{{ p.cents | money }}</td>
+      </tr>
+      {% else %}<tr><td class="muted text-sm py-4">No price shown on the page.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel p-5 space-y-3">
+  <h2 class="font-semibold">Your shortlist</h2>
+  {% if saved %}
+    {% set snap = saved.snapshot %}
+    <p class="text-sm">Saved {{ saved.saved_at[:10] }} as {{ snap.exterior_raw or 'paint not listed' }} / {{ snap.interior_raw or 'interior not listed' }} at {{ snap.comparison_price_cents | money if snap.comparison_price_cents is not none else 'no cash price' }}.</p>
+    {% if tracked and tracked.changed %}
+    <p class="text-sm">Since you saved it: <span class="chip {{ 'c-yes' if tracked.status == 'Listed' else 'c-partial' }}">{{ tracked.status }}</span> {{ tracked.change.label }}{% for f in tracked.feature_changes %} · {{ f }}{% endfor %}</p>
+    {% else %}
+    <p class="text-sm muted">Unchanged since you saved it.</p>
+    {% endif %}
+  {% elif savable %}
+  <p class="text-sm muted">Not on your shortlist yet.</p>
+  {% else %}
+  <p class="text-sm muted">This car is not validated yet, so it cannot be saved.</p>
+  {% endif %}
+  {% if matching %}
+  <p class="text-sm font-medium">Matching your searches</p>
+  <ul class="text-sm space-y-1">
+    {% for m in matching %}
+    <li><a class="link" href="/shortlist/searches/{{ m.search_id }}">{{ m.name }}</a>
+      · {% if m.tier == 'MATCH' %}Match{% else %}Possible match{% endif %}
+      · score {{ m.score }}
+      {% if m.is_new %}· New today{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
+<section class="grid xl:grid-cols-2 gap-6">
+  <div class="panel p-5">
+    <h2 class="font-semibold">Feature evidence</h2>
+    <p class="text-xs muted mt-1">Each YES/NO cites a verbatim quote, URL, fetch time and page hash. Unknown means the page did not say.</p>
+    <table class="w-full text-sm mt-3 compact">
+      <tbody>
+      {% for f in features %}
+      <tr class="border-t align-top">
+        <td class="whitespace-nowrap font-medium">{{ f.feature | replace('_', ' ') | title }}</td>
+        <td>{{ tri(f.status) }}</td>
+        <td><span class="chip {{ 'c-yes' if f.sufficiency == 'VERIFIED' else 'c-no' if f.sufficiency == 'CONFLICT' else 'c-unknown' }}">{{ f.sufficiency | lower }}</span></td>
+        <td class="text-xs muted">{% if f.quote %}<span>“…{{ f.quote }}…”</span> <span class="muted">({{ f.source_kind }})</span>{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="panel p-5">
+    <h2 class="font-semibold">Same-VIN history</h2>
+    <p class="text-xs muted mt-1">Cash price and MSRP on each day we saw this car. A price change is only counted for the same VIN and the same kind of price.</p>
+    <div id="hist" class="chart mt-3"></div>
+    <ul class="text-xs mt-2 space-y-1">
+      {% for e in lifecycle %}<li><span class="muted">{{ e.event_at[:10] }}</span> · {{ (e.from_state or 'new') | replace('_', ' ') | lower }} → <b>{{ e.to_state | replace('_', ' ') | lower }}</b></li>{% endfor %}
+      {% for e in price_events %}<li><span class="muted">price</span> · {{ e.event }} {{ e.before_cents | money }} → {{ e.after_cents | money }}</li>{% endfor %}
+    </ul>
+  </div>
+</section>
+
+<section class="panel p-5">
+  <h2 class="font-semibold">Seen on</h2>
+  <div class="overflow-x-auto mt-3">
+    <table class="w-full text-sm compact">
+      <thead class="text-left text-[11px] uppercase tracking-wider muted"><tr><th>Date</th><th>Dealer</th><th class="text-right">Cash price</th><th class="text-right">MSRP</th></tr></thead>
+      <tbody>
+      {% for h in history | reverse %}
+      <tr class="border-t">
+        <td>{{ h.snapshot_date }}</td><td><a class="link" href="/dealers/{{ h.dealer_id }}">{{ h.dealer_name }}</a></td>
+        <td class="text-right tabular-nums">{{ h.comparison_price_cents | money }}</td><td class="text-right tabular-nums muted">{{ h.msrp_cents | money }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<details class="panel p-5">
+  <summary class="cursor-pointer font-semibold">Technical details</summary>
+  <div class="mt-3 flex flex-wrap gap-2">
+    {% for f in latest.flags %}<span class="chip c-flag">{{ f }}</span>{% endfor %}
+    <span class="chip c-flag">extraction: {{ latest.extraction_method }}</span>
+    <span class="chip c-flag">adapter {{ latest.adapter_version }}</span>
+    <span class="chip c-flag">git {{ latest.git_sha }}</span>
+  </div>
+  <dl class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+    {% for k, v in [('AG code', latest.ag_code if latest.ag_code else '23EU'), ('Availability', latest.availability), ('Fetched (UTC)', latest.fetched_at), ('Page hash', latest.page_hash[:16] ~ '…'), ('Staging', latest.staging_status or '—')] %}
+    <div><dt class="text-[11px] uppercase tracking-wider muted">{{ k }}</dt><dd class="mt-0.5 break-all">{{ v }}</dd></div>
+    {% endfor %}
+  </dl>
+  {% if lifecycle %}
+  <ul class="text-xs mt-4 space-y-1">
+    {% for e in lifecycle %}<li><span class="muted">{{ e.event_at[:10] }}</span> · {{ e.from_state or '∅' }} → <b>{{ e.to_state }}</b> <span class="muted">({{ e.reason }})</span></li>{% endfor %}
+  </ul>
+  {% endif %}
+  <div class="overflow-x-auto mt-4">
+    <table class="w-full text-sm compact">
+      <thead class="text-left text-[11px] uppercase tracking-wider muted"><tr><th>Date</th><th>Run</th><th>Dealer</th><th class="text-right">Comparison</th><th class="text-right">MSRP</th><th>Flags</th><th>Method</th><th>Hash</th></tr></thead>
+      <tbody>
+      {% for h in history | reverse %}
+      <tr class="border-t">
+        <td>{{ h.snapshot_date }}</td><td class="font-mono text-[11px] muted">{{ h.run_id }}</td><td>{{ h.dealer_name }}</td>
+        <td class="text-right tabular-nums">{{ h.comparison_price_cents | money }}</td><td class="text-right tabular-nums muted">{{ h.msrp_cents | money }}</td>
+        <td class="text-[11px] muted">{{ h.flags | join(' ') }}</td><td class="text-xs">{{ h.extraction_method }} v{{ h.version }}</td><td class="font-mono text-[11px] muted">{{ h.page_hash[:12] }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('shortlist-change', e => {
+  const f = document.getElementById('noteForm');
+  if (f && e.detail.vin === f.dataset.note) f.hidden = !e.detail.saved;
+});
+const series = {{ series | tojson_safe }};
+mkChart('hist', {
+  tooltip: { trigger: 'axis', valueFormatter: usd }, legend: { top: 0 },
+  grid: { left: 70, right: 20, top: 40, bottom: 30 },
+  xAxis: { type: 'category', data: series.map(s => s.date) },
+  yAxis: { type: 'value', scale: true, axisLabel: { formatter: v => usd(v) } },
+  series: [
+    { name: 'Cash price', type: 'line', data: series.map(s => s.price), symbolSize: 8, connectNulls: false },
+    { name: 'MSRP', type: 'line', data: series.map(s => s.msrp), lineStyle: { type: 'dashed' }, symbolSize: 6 }
+  ]
+});
+</script>
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block heading %}Review queue · {{ items | length }} open{% endblock %}
+{% block content %}
+
+<section class="panel p-5">
+  <h2 class="font-semibold">Items awaiting an operator decision</h2>
+  <p class="text-xs muted mt-1">This screen is read-only. Decide from the CLI so the operator id cannot be spoofed: <span class="font-mono">carshop review approve ITEM</span>, <span class="font-mono">reject</span>, or <span class="font-mono">correct</span>. The original extraction stays.</p>
+  <div class="mt-4 space-y-3">
+    {% for it in items %}
+    <div class="rounded-xl border sunk p-4 grid md:grid-cols-[1fr_auto] gap-4">
+      <div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="chip c-partial">{{ it.issue }}</span>
+          <a class="font-medium link" href="/dealers/{{ it.dealer_id }}">{{ it.dealer_name }}</a>
+          {% if it.vin %}<a class="font-mono text-xs link hover:underline" href="/vin/{{ it.vin }}">{{ it.vin }}</a>{% endif %}
+          <span class="text-[11px] muted">run {{ it.run_id }} · {{ it.created_at | age }}</span>
+        </div>
+        <div class="text-sm mt-2">{{ it.issue | replace('_', ' ') | capitalize }} — the extraction stays as observed; decide whether this row may be counted.</div>
+      </div>
+      <div class="text-xs muted font-mono">carshop review approve {{ it.item_id }}</div>
+    </div>
+    {% else %}
+    <div class="py-10 text-center muted"><div class="text-3xl mb-2">✓</div>Nothing to review.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel p-5">
+  <h2 class="font-semibold">Audit trail (last 50)</h2>
+  <div class="overflow-x-auto mt-3">
+    <table class="w-full text-xs compact">
+      <thead class="text-left text-[11px] uppercase tracking-wider muted"><tr><th>When (UTC)</th><th>Entity</th><th>Field</th><th>Old</th><th>New</th><th>Operator</th><th>Reason</th></tr></thead>
+      <tbody>
+        {% for a in audits %}
+        <tr class="border-t">
+          <td class="whitespace-nowrap muted">{{ a.event_at }}</td><td>{{ a.entity }} <span class="muted">{{ a.entity_id }}</span></td><td>{{ a.field }}</td>
+          <td class="muted truncate max-w-[12rem]" title="{{ a.old_value }}">{{ a.old_value or '—' }}</td><td class="truncate max-w-[12rem]" title="{{ a.new_value }}">{{ a.new_value or '—' }}</td>
+          <td>{{ a.operator_id }}</td><td class="muted">{{ a.reason or '—' }}</td>
+        </tr>
+        {% else %}<tr><td colspan="7" class="py-6 text-center muted">No audit events.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

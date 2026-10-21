@@ -1,0 +1,37 @@
+{
+  "eligible": {
+    "5UX23EU03T9529691": {
+      "comparison_price_cents": 7932500,
+      "dap": "UNKNOWN",
+      "exterior_code": "C4W",
+      "flags": [
+        "DAP_UNKNOWN"
+      ],
+      "in_transit": false,
+      "interior_code": "KPHF",
+      "m_sport": false,
+      "msrp_cents": 7910000
+    },
+    "5UX23EU05T9472216": {
+      "comparison_price_cents": null,
+      "dap": "UNKNOWN",
+      "exterior_code": "300",
+      "flags": [
+        "DAP_UNKNOWN",
+        "IN_TRANSIT",
+        "PKG_M_SPORT",
+        "PRICE_MISSING"
+      ],
+      "in_transit": true,
+      "interior_code": "KPSW",
+      "m_sport": true,
+      "msrp_cents": 8190000
+    }
+  },
+  "excluded": {
+    "5UX13EU07T9000014": "NOT_XDRIVE40I",
+    "5UX23EU01S9000013": "USED_OR_CPO",
+    "5UX23EU04V9000012": "NOT_MY2026",
+    "5UX43EU05T9000011": "POWERTRAIN_OTHER"
+  }
+}

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status %}
+{% set f = payload.flow %}
+{% block heading %}Today's check{% endblock %}
+{% block content %}
+
+{% if all_failed %}
+<div class="note-bad">
+  <div class="font-semibold">All attempted dealers failed in this run.</div>
+  <div class="mt-1">No inventory point was written. Charts show a gap for this date, not zero. See <a class="link" href="/health{% if run %}?run_id={{ run.run_id }}{% endif %}">data health</a> for reasons.</div>
+</div>
+{% endif %}
+
+<section class="panel p-5">
+  <p class="muted text-sm">The same pass that fills the car list. It runs once a day at {{ f.when }}. It is not a live feed. The last finished check is {{ f.asOfLabel }}.</p>
+  <div class="grid gap-4 mt-4" style="grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr))">
+    {% for label, value, href, sub in [
+      ('1 · Collect', f.checked ~ ' of ' ~ f.dealers, '/pipeline', 'dealers answered'),
+      ('2 · Check', f.kept, '/inventory', 'cars kept'),
+      ('Cash price', f.priced, '/inventory?price=present', 'cars with a cash price'),
+      ('Waiting', f.waiting, '/review', 'for a person to confirm')] %}
+    <a href="{{ href }}" class="panel sunk p-4 block" style="text-decoration:none;color:inherit">
+      <div class="eyebrow">{{ label }}</div>
+      <div class="text-3xl font-bold tabular-nums mt-1" style="letter-spacing:-0.02em">{{ value }}</div>
+      <div class="muted text-xs mt-1">{{ sub }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% if f.waiting %}
+  <p class="mt-4 text-sm">{{ f.waiting }} listings are waiting for a person to confirm them, so they are not in the buyer's list yet.</p>
+  {% else %}
+  <p class="mt-4 text-sm">Nothing is waiting for a person to confirm. Every car that passed the check is in the list.</p>
+  {% endif %}
+</section>
+
+<section class="grid xl:grid-cols-2 gap-6">
+  <div class="panel p-5">
+    <h2 class="text-lg">What changed since the previous check</h2>
+    <div class="grid grid-cols-3 gap-3 mt-3">
+      <div class="sunk rounded-xl p-3"><div class="text-2xl font-bold tabular-nums">{{ f.added }}</div><div class="muted text-xs">cars we had not seen before</div></div>
+      <div class="sunk rounded-xl p-3"><div class="text-2xl font-bold tabular-nums">{{ f.missing }}</div><div class="muted text-xs">not on the site this time, not a sale</div></div>
+      <div class="sunk rounded-xl p-3"><div class="text-2xl font-bold tabular-nums">{{ f.priceChanges }}</div><div class="muted text-xs">price changes on the same car</div></div>
+    </div>
+    {% if price_events %}
+    <h3 class="text-sm mt-5">Price change log</h3>
+    <ul class="mt-2 text-sm">
+      {% for e in price_events %}
+      <li class="py-2 flex items-center gap-2 border-t">
+        <a class="font-mono text-xs link" href="/vin/{{ e.vin }}">{{ e.vin[-8:] }}</a>
+        <a class="link truncate" href="/dealers/{{ e.dealer_id }}">{{ e.dealer_name }}</a>
+        <span class="ml-auto tabular-nums {{ 'good' if e.delta_cents < 0 else 'bad' }}">{{ e.event }} {{ '%+.0f' % (e.delta_cents / 100) }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  <div class="panel p-5">
+    <h2 class="text-lg">Update</h2>
+    <p class="mt-2 text-sm">The next pass is set for {{ f.when }} and replaces this list. Set a wish list against the cars from this check on <a class="link" href="/">Find a car</a>.</p>
+    {% set ok = payload.dealers | selectattr('status', 'equalto', 'checked') | list %}
+    <h3 class="text-sm mt-5">Dealers we checked <span class="muted font-normal">· {{ ok | length }} of {{ payload.dealers | length }} Texas dealers</span></h3>
+    <ul class="mt-2 text-sm grid sm:grid-cols-2 gap-x-6">
+      {% for d in payload.dealers | sort(attribute='cars', reverse=True) | sort(attribute='status') %}
+      <li class="py-1.5 flex items-center gap-2 border-t">
+        <span class="status-dot {{ 'dot-reported' if d.status == 'checked' else 'dot-partial' }}" aria-hidden="true"></span>
+        <a class="link truncate" href="/dealers/{{ d.id }}">{{ d.name }}</a><span class="muted truncate">{{ d.city }}</span>
+        <span class="ml-auto whitespace-nowrap {{ 'tabular-nums' if d.status == 'checked' else 'muted text-xs' }}">{% if d.status == 'checked' %}{{ d.cars }} car{{ '' if d.cars == 1 else 's' }}{% else %}{{ d.reason or 'Not checked' }}{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</section>
+
+{% if run %}
+<section class="panel p-5">
+  <div class="flex flex-wrap items-baseline justify-between gap-2">
+    <h2 class="text-lg">Dealer results in this run</h2>
+    <span class="font-mono text-[11px] muted">{{ run.run_id }}</span>
+  </div>
+  <p class="muted text-xs mt-1">One row per dealer branch. A lower floor caused by a different VIN is turnover, not a markdown. Status links open that dealer's lane on Live pipeline.</p>
+  <div class="overflow-x-auto mt-3">
+    <table class="w-full text-sm compact">
+      <thead class="text-left text-[11px] uppercase tracking-wider"><tr><th>Dealer</th><th>City</th><th>Status</th><th>Reason</th><th class="text-right">Pages</th><th class="text-right">Raw</th><th class="text-right">Eligible</th><th class="text-right">Floor</th><th></th></tr></thead>
+      <tbody>
+        {% for d in dealers %}
+        <tr>
+          <td><a class="link" href="/dealers/{{ d.dealer_id }}">{{ d.name }}</a></td>
+          <td class="muted">{{ d.city }}</td>
+          <td><a href="/pipeline?run_id={{ run.run_id }}&dealer={{ d.dealer_id }}" style="text-decoration:none">{{ status(d.status) }}</a></td>
+          <td class="font-mono text-[11px] muted">{{ d.reason_code or '—' }}</td>
+          <td class="text-right tabular-nums muted">{{ d.pages_read }}/{{ d.pages_expected }}</td>
+          <td class="text-right tabular-nums muted">{{ d.raw_count }}</td>
+          <td class="text-right tabular-nums"><a class="link" href="/inventory?run_id={{ run.run_id }}&dealer={{ d.dealer_id }}">{{ d.units }}</a></td>
+          <td class="text-right tabular-nums">{% if d.floor_vin %}<a class="link" href="/vin/{{ d.floor_vin }}">{{ d.floor_cents | money }}</a>{% elif d.status == 'REPORTED' %}<span class="muted text-xs">no cash price</span>{% else %}<span class="bad text-xs">gap</span>{% endif %}</td>
+          <td>{% if d.anomaly %}<span class="chip c-partial" title="Positive count fell to a rendered zero">anomaly?</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

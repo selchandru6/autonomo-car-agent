@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.coverage
+coverage.xml
+htmlcov/
+
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Runtime data (SQLite, WAL, snapshots, backups, digests)
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+
+# Playwright
+/ms-playwright/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "_macros.html" import save_button, search_controls %}
+{% block heading %}{{ search.name }}{% endblock %}
+{% block content %}
+{% set base = search.criteria.base %}
+<section class="panel p-5 space-y-3">
+  <div class="flex flex-wrap items-baseline justify-between gap-3">
+    <p class="text-sm">
+      {% if base %}Like <a class="font-mono text-xs link" href="/vin/{{ base.vin }}">{{ base.vin }}</a> <span class="muted">({{ base.ext_name }} / {{ base.int_name }})</span>{% else %}From your wish list{% endif %}
+      {% if search.paused %}<span class="chip c-partial ml-2">Paused</span>{% endif %}
+    </p>
+    <p class="text-xs muted">{% if evaluated_at %}Checked {{ evaluated_at | age }}{% else %}Not checked yet{% endif %}</p>
+  </div>
+  <div class="reasons">{% for line in summary %}<span class="chip c-info">{{ line }}</span>{% endfor %}</div>
+  {{ search_controls(search, detail=True) }}
+</section>
+
+<section class="panel p-5">
+  {% set n_match = matches | selectattr('tier', 'equalto', 'MATCH') | list | length %}
+  <h2 class="font-semibold">Current matches <span class="muted font-normal text-sm">({{ n_match }} match, {{ matches | length - n_match }} possible)</span></h2>
+  <p class="text-xs muted mt-1">A possible match is missing a must-have from the dealer's listing, or has no cash price. It never counts as a match.</p>
+  {% if matches %}
+  <div class="overflow-x-auto mt-3">
+    <table class="w-full text-sm compact">
+      <thead class="text-left text-[11px] uppercase tracking-wider muted">
+        <tr><th>Fit</th><th class="text-right">Score</th><th>Car</th><th class="text-right">Cash price</th><th>Why</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for r in matches %}
+      <tr class="border-t align-top">
+        <td>{% if r.tier == 'MATCH' %}<span class="tier-match">Match</span>{% else %}<span class="tier-possible">Possible match</span>{% endif %}</td>
+        <td class="text-right tabular-nums">{{ r.score }}</td>
+        <td>
+          <a href="/vin/{{ r.vin }}" class="font-mono text-xs link hover:underline">{{ r.vin }}</a>
+          <div class="text-xs muted"><a class="link" href="/dealers/{{ r.dealer_id }}">{{ r.dealer_name }}</a> · {{ r.city }}</div>
+          <div class="text-xs muted">{{ r.ext_name }} / {{ r.int_name }}</div>
+        </td>
+        <td class="text-right tabular-nums font-semibold {{ '' if r.price is not none else 'muted' }}">{{ r.price | money if r.price is not none else 'Not shown' }}</td>
+        <td><div class="reasons">{% for x in r.reasons %}<span class="chip {{ 'c-yes' if x.k == 'met' else 'c-partial' if x.k == 'unk' else 'c-info' }}">{{ x.t }}</span>{% endfor %}</div></td>
+        <td>{{ save_button(r.vin, saved_vins) }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty mt-4 text-sm muted">No cars match right now. Matches are checked again after every daily run.</div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "_macros.html" import save_button %}
+{% block heading %}All inventory · {{ units | length }} of {{ total }} vehicles{% endblock %}
+{% block content %}
+
+<p class="text-sm muted -mt-2">One row per VIN, merged from the October workbooks. A VIN is never stored at two dealers. <span class="muted">Yes</span> means a sheet named the feature. <span class="muted">No</span> is only used where a sheet said no. A blank means the sheet did not say.</p>
+
+{% if moved %}
+<div class="note-warn space-y-1">
+  <div class="font-semibold">{{ moved | length }} VIN{{ 's' if moved | length != 1 else '' }} changed dealer between snapshots. The latest dealer is stored.</div>
+  {% for v in moved %}
+  <div><span class="font-mono">{{ v.vin }}</span> {{ v.prior_dealer }} → {{ v.dealer_name }} <span class="warn">as of {{ v.as_of }}</span></div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<form method="get" class="panel p-4 space-y-4 text-xs">
+  <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
+    {% macro sel(name, label, options, current) %}
+    <label class="space-y-1">
+      <span class="muted">{{ label }}</span>
+      <select name="{{ name }}" class="w-full sunk border rounded-md px-2 py-1.5" onchange="this.form.submit()">
+        <option value="">Any</option>
+        {% for opt in options %}<option value="{{ opt[0] }}" {% if current == opt[0] %}selected{% endif %}>{{ opt[1] }}{% if opt | length > 2 and opt[2] != '' %} ({{ opt[2] }}){% endif %}</option>{% endfor %}
+      </select>
+    </label>
+    {% endmacro %}
+    {{ sel('dealer', 'Dealer', facets.get('dealer', []), q.get('dealer', '')) }}
+    {{ sel('city', 'City', facets.get('city', []), q.get('city', '')) }}
+    {{ sel('trim', 'Trim', facets.get('trim', []), q.get('trim', '')) }}
+    {{ sel('exterior', 'Exterior', facets.get('exterior', []), q.get('exterior', '')) }}
+    {{ sel('interior', 'Interior', facets.get('interior', []), q.get('interior', '')) }}
+    {{ sel('price', 'Advertised price', [('present', 'Shown', ''), ('absent', 'Not shown', '')], q.get('price', '')) }}
+    {{ sel('sort', 'Sort', [('dealer', 'Dealer', ''), ('price', 'Advertised ↑', ''), ('msrp', 'MSRP ↑', '')], q.get('sort', 'dealer')) }}
+    <div class="flex items-end">
+      <a href="/catalog" class="chip c-flag py-1.5">Clear</a>
+    </div>
+  </div>
+  <div>
+    <div class="muted mb-2">Features</div>
+    <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
+      {% for feat in features %}
+      {% set yes = feature_counts[feat.code].YES %}
+      {% set no = feature_counts[feat.code].NO %}
+      <label class="flex items-center justify-between gap-2 sunk border rounded-lg px-2 py-1.5">
+        <span class="truncate" title="{{ feat.label }}">{{ feat.label }}</span>
+        <select name="f_{{ feat.code }}" class="sunk border rounded px-1 py-0.5" onchange="this.form.submit()">
+          <option value="">Any</option>
+          <option value="YES" {% if q.get('f_' ~ feat.code) == 'YES' %}selected{% endif %}>Yes ({{ yes }})</option>
+          {% if no %}<option value="NO" {% if q.get('f_' ~ feat.code) == 'NO' %}selected{% endif %}>No ({{ no }})</option>{% endif %}
+          <option value="ABSENT" {% if q.get('f_' ~ feat.code) == 'ABSENT' %}selected{% endif %}>Not shown</option>
+        </select>
+      </label>
+      {% endfor %}
+    </div>
+  </div>
+</form>
+
+<div class="panel overflow-hidden">
+  {% if units %}
+  <div class="overflow-x-auto max-h-[70vh]">
+    <table class="w-full text-sm compact">
+      <thead class="sticky-head text-left text-[11px] uppercase tracking-wider muted">
+        <tr>
+          <th>VIN</th><th>Dealer</th><th>Trim</th><th>Exterior</th><th>Interior</th>
+          <th class="text-right">Miles</th><th class="text-right">MSRP</th><th class="text-right">Advertised</th>
+          <th>As of</th>
+          {% for feat in features %}<th title="{{ feat.label }}">{{ feat.label }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in units %}
+        <tr class="border-t">
+          <td class="font-mono text-xs">
+            {% if u.listing_url %}<a class="link hover:underline" href="{{ u.listing_url }}" target="_blank" rel="noreferrer">{{ u.vin }}</a>{% else %}{{ u.vin }}{% endif %}
+            {{ save_button(u.vin, saved_vins, u.vin in savable) }}
+            {% if u.prior_dealer %}<div class="text-[10px] warn">was {{ u.prior_dealer }}</div>{% endif %}
+          </td>
+          <td>{{ u.dealer_name }}{% if u.city %}<div class="text-[11px] muted">{{ u.city }}</div>{% endif %}</td>
+          <td>{{ u.trim_code }}</td>
+          <td class="max-w-[10rem] truncate" title="{{ u.exterior or '' }}">{{ u.exterior or '—' }}</td>
+          <td class="max-w-[10rem] truncate" title="{{ u.interior or '' }}">{{ u.interior or '—' }}</td>
+          <td class="text-right">{{ u.mileage if u.mileage is not none else '—' }}</td>
+          <td class="text-right">{{ u.msrp_cents | money }}</td>
+          <td class="text-right">{{ u.advertised_cents | money }}</td>
+          <td class="text-xs muted">{{ u.as_of }}</td>
+          {% for feat in features %}
+          {% set st = u.features.get(feat.code) %}
+          <td>{% if st == 'YES' %}<span class="chip c-yes">Yes</span>{% elif st == 'NO' %}<span class="chip c-no">No</span>{% else %}<span class="faint">—</span>{% endif %}</td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="p-10 text-center muted">
+    {% if total == 0 %}No workbook vehicles loaded yet. Run <span class="font-mono">carshop import-workbooks</span>.
+    {% else %}No vehicles match these filters.{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

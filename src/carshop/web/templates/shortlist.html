@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+{% from "_macros.html" import tri, meter, save_button, search_controls %}
+{% block heading %}My shortlist{% endblock %}
+{% block content %}
+
+<nav class="tabs" aria-label="Shortlist views">
+  <a href="/shortlist?tab=new"{% if tab == "new" %} aria-current="true"{% endif %}>New today<span class="n">{{ new_n }}</span></a>
+  <a href="/shortlist?tab=saved"{% if tab == "saved" %} aria-current="true"{% endif %}>Saved cars<span class="n">{{ tracked | length }}</span></a>
+  <a href="/shortlist?tab=searches"{% if tab == "searches" %} aria-current="true"{% endif %}>Saved searches<span class="n">{{ searches | length }}</span></a>
+  <a href="/shortlist?tab=ranked{% if run and request.query_params.get("run_id") %}&run_id={{ run.run_id }}{% endif %}"{% if tab == "ranked" %} aria-current="true"{% endif %}>Ranked for you</a>
+</nav>
+
+{% if tab == "new" %}
+<section class="space-y-4">
+  <h2 class="font-semibold">New today</h2>
+  <p class="text-xs muted -mt-2">New matches and cars that became a full match after this morning's check. A car is announced once per search.</p>
+  {% for g in new_events %}
+  <article class="panel p-5 space-y-3">
+    <h3 class="font-semibold"><a class="link" href="/shortlist/searches/{{ g.search_id }}">{{ g.name }}</a>
+      <span class="muted font-normal text-sm">({{ g.rows | length }})</span></h3>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm compact">
+        <thead class="text-left text-[11px] uppercase tracking-wider muted">
+          <tr><th>Fit</th><th class="text-right">Score</th><th>Car</th><th class="text-right">Cash price</th><th>Why</th><th></th></tr>
+        </thead>
+        <tbody>
+        {% for r in g.rows %}
+        <tr class="border-t align-top">
+          <td>
+            {% if r.tier == 'MATCH' %}<span class="tier-match">Match</span>{% else %}<span class="tier-possible">Possible match</span>{% endif %}
+            {% if r.became_full_match %}<div class="text-[11px] good">Now a full match</div>{% endif %}
+            {% if r.is_new %}<div class="text-[11px]">New</div>{% endif %}
+          </td>
+          <td class="text-right tabular-nums">{{ r.score }}</td>
+          <td>
+            <a href="/vin/{{ r.vin }}" class="font-mono text-xs link hover:underline">{{ r.vin }}</a>
+            <div class="text-xs muted"><a class="link" href="/dealers/{{ r.dealer_id }}">{{ r.dealer_name }}</a> · {{ r.ext_name }} / {{ r.int_name }}</div>
+          </td>
+          <td class="text-right tabular-nums font-semibold">{{ r.price | money if r.price is not none else 'Not shown' }}</td>
+          <td><div class="reasons">{% for x in r.reasons %}<span class="chip {{ 'c-yes' if x.k == 'met' else 'c-partial' if x.k == 'unk' else 'c-info' }}">{{ x.t }}</span>{% endfor %}</div></td>
+          <td>{{ save_button(r.vin, saved_vins) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </article>
+  {% else %}
+  <div class="panel empty p-5 text-sm muted">No new matches today. New cars for your saved searches will show here after the next daily check.</div>
+  {% endfor %}
+</section>
+{% elif tab == "saved" %}
+<section class="panel p-5">
+  <div class="flex items-baseline justify-between gap-4">
+    <h2 class="font-semibold">Saved cars <span class="muted font-normal text-sm">({{ tracked | length }} of {{ max_saved }})</span></h2>
+    <p class="text-xs muted">Compared with the day you saved each car. A car that disappears is missing, unverified, never sold.</p>
+  </div>
+  {% if tracked %}
+  <div class="overflow-x-auto mt-3">
+    <table class="w-full text-sm compact">
+      <thead class="text-left text-[11px] uppercase tracking-wider muted">
+        <tr><th>Car</th><th>Status</th><th class="text-right">Price now</th><th>Since you saved it</th><th class="text-right">Lowest seen</th><th>Package changes</th><th>Last checked</th><th></th></tr>
+      </thead>
+      <tbody>
+      {% for t in tracked %}
+      <tr class="border-t align-top" data-saved-row="{{ t.vin }}">
+        <td>
+          <a href="/vin/{{ t.vin }}" class="font-mono text-xs link hover:underline">{{ t.vin }}</a>
+          <div class="text-xs muted">{{ t.snapshot.exterior_raw or 'Paint not listed' }} / {{ t.snapshot.interior_raw or 'interior not listed' }}</div>
+          <div class="text-xs"><a class="link" href="/dealers/{{ t.dealer_id }}">{{ t.dealer_name }}</a>{% if t.moved_from %} <span class="muted">· was at {{ t.moved_from }}</span>{% endif %}</div>
+          <div class="text-[11px] muted">Saved {{ t.saved_at | age }} at {{ t.snapshot.comparison_price_cents | money }}</div>
+          {% if t.note %}<div class="text-xs mt-1 italic">“{{ t.note }}”</div>{% endif %}
+        </td>
+        <td><span class="chip {{ 'c-yes' if t.status == 'Listed' else 'c-info' if t.status in ('Back again', 'Also listed at another dealer') else 'c-partial' }}">{{ t.status }}</span></td>
+        <td class="text-right tabular-nums font-semibold {{ 'good' if t.price_now_cents is not none else 'muted' }}">{{ t.price_now or (t.price_now_cents | money) }}</td>
+        <td class="tabular-nums {{ 'delta-down' if t.change.direction == 'down' else 'delta-up' if t.change.direction == 'up' else 'muted' }}">{{ t.change.label }}</td>
+        <td class="text-right tabular-nums">{{ t.lowest_cents | money }}</td>
+        <td class="text-xs">{% for f in t.feature_changes %}<div>{{ f }}</div>{% else %}<span class="muted">None</span>{% endfor %}</td>
+        <td class="text-xs whitespace-nowrap">
+          {% if t.not_read_on %}<div class="warn">Dealer not read on {{ t.not_read_on }}</div>{% endif %}
+          <div class="muted">{{ t.last_read or 'Not yet' }}</div>
+        </td>
+        <td>
+          <div class="flex flex-col items-start gap-1">
+            {{ save_button(t.vin, saved_vins) }}
+            {% if t.status != 'Waiting for a review check' %}<a class="text-xs link whitespace-nowrap" href="/shortlist/searches/new?base={{ t.vin }}">Find cars like this</a>{% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty mt-4 text-sm muted">No saved cars yet. Use ☆ Save on any car.</div>
+  {% endif %}
+</section>
+{% elif tab == "searches" %}
+<section class="space-y-4">
+  <div class="flex flex-wrap items-baseline justify-between gap-4">
+    <h2 class="font-semibold">Saved searches <span class="muted font-normal text-sm">({{ searches | length }} of {{ max_searches }})</span></h2>
+    <p class="text-xs muted">Checked after every daily run. Cars already matching when you save a search are not announced as new.</p>
+  </div>
+  {% for srch in searches %}
+  <article class="panel p-5 space-y-3">
+    <div class="flex flex-wrap items-baseline justify-between gap-3">
+      <h3 class="font-semibold"><a class="link" href="/shortlist/searches/{{ srch.search_id }}">{{ srch.name }}</a>
+        {% if srch.paused %}<span class="chip c-partial ml-1">Paused</span>{% endif %}</h3>
+      <p class="text-sm tabular-nums"><span class="tier-match">{{ srch.match }}</span> match · <span class="tier-possible">{{ srch.possible }}</span> possible{% if srch.new_today %} · <strong>{{ srch.new_today }} new today</strong>{% endif %}</p>
+    </div>
+    <p class="text-xs muted">
+      {% if srch.criteria.base %}Like <a class="font-mono link" href="/vin/{{ srch.criteria.base.vin }}">{{ srch.criteria.base.vin }}</a> · {% endif %}
+      {% if srch.evaluated_at %}checked {{ srch.evaluated_at | age }}{% else %}not checked yet{% endif %}
+    </p>
+    <div class="reasons">{% for line in srch.summary %}<span class="chip c-info">{{ line }}</span>{% endfor %}</div>
+    {{ search_controls(srch) }}
+  </article>
+  {% else %}
+  <div class="panel empty p-5 text-sm muted">No saved searches yet. Open a car and choose Find cars like this.</div>
+  {% endfor %}
+</section>
+{% else %}
+
+<section class="grid xl:grid-cols-4 gap-6">
+  <div class="panel p-5">
+    <h2 class="font-semibold">Saved preferences</h2>
+    <p class="text-xs muted mt-1">Configuration, not code. Hard constraints (new, MY2026, xDrive40i, Texas, ≤500 mi) are applied before ranking.</p>
+    <ul class="mt-3 text-sm space-y-2">
+      {% for label, w in [('Driving Assistance Professional', prefs.weights.dap), ('Grey exterior', prefs.weights.exterior_grey), ('Non-black interior', prefs.weights.interior_non_black),
+                          ('Massage seats', prefs.weights.massage), ('Panoramic roof', prefs.weights.panoramic_roof), ('Sky Lounge', prefs.weights.sky_lounge),
+                          ('Executive package', prefs.weights.executive), ('Climate Comfort', prefs.weights.climate_comfort), ('Air suspension', prefs.weights.air_suspension)] %}
+      <li class="flex items-center gap-3"><span class="flex-1">{{ label }}</span><span class="text-xs muted tabular-nums">w={{ w }}</span></li>
+      {% endfor %}
+    </ul>
+    <div class="mt-4 text-xs muted">Maximum price: {% if prefs.max_price_cents %}{{ prefs.max_price_cents | money }}{% else %}<em>unset by owner</em>{% endif %}</div>
+    <form method="get" class="mt-4 space-y-2 text-xs">
+      <input type="hidden" name="run_id" value="{{ run.run_id }}">
+      <input type="hidden" name="tab" value="ranked">
+      <label class="flex items-center gap-2"><input type="checkbox" name="hide_unknown_dap" value="1" {% if q.get('hide_unknown_dap') == '1' %}checked{% endif %} onchange="this.form.submit()"> Hide cars with unknown DAP</label>
+      <label class="flex items-center gap-2"><input type="checkbox" name="msport" value="no" {% if q.get('msport') == 'no' %}checked{% endif %} onchange="this.form.submit()"> Hide M Sport (ZMP) cars</label>
+      <label class="flex items-center gap-2"><input type="checkbox" name="price" value="present" {% if q.get('price') == 'present' %}checked{% endif %} onchange="this.form.submit()"> Only cars with a shown cash price</label>
+    </form>
+  </div>
+
+  <div class="panel p-5 xl:col-span-3" x-data="{ sel: {{ compare_vins | tojson_safe }} }">
+    <div class="flex items-baseline justify-between gap-4">
+      <h2 class="font-semibold">Ranked listings <span class="muted font-normal text-sm">({{ units | length }})</span></h2>
+      <div class="text-xs flex items-center gap-2">
+        <span class="muted" x-text="sel.length + ' selected'"></span>
+        <a class="chip c-info" :href="'/shortlist?tab=ranked&run_id={{ run.run_id }}&compare=' + sel.join(',')" x-show="sel.length > 1">Compare side by side →</a>
+      </div>
+    </div>
+    <div class="overflow-x-auto mt-3 max-h-[60vh]">
+      <table class="w-full text-sm compact">
+        <thead class="sticky-head text-left text-[11px] uppercase tracking-wider muted">
+          <tr><th></th><th>#</th><th>VIN · dealer</th><th class="text-right">Cash price</th><th>Fit</th><th>Confidence</th><th>Matches</th><th>Unknowns</th><th>Verified</th></tr>
+        </thead>
+        <tbody>
+        {% for u in units %}
+        <tr class="border-t row-link align-top">
+          <td><input type="checkbox" class="mt-1" value="{{ u.vin }}" x-model="sel"></td>
+          <td class="muted tabular-nums">{{ loop.index }}</td>
+          <td><a href="/vin/{{ u.vin }}" class="font-mono text-xs link hover:underline">{{ u.vin }}</a><div class="text-xs muted"><a class="link" href="/dealers/{{ u.row.dealer_id }}">{{ u.row.dealer_name }}</a> · {{ u.row.exterior_raw or '—' }} / {{ u.row.interior_raw or '—' }}{% if u.row.m_sport %} · M Sport{% endif %}{% if u.row.in_transit %} · in transit{% endif %}</div></td>
+          <td class="text-right tabular-nums font-semibold {{ 'good' if u.row.comparison_price_cents else 'muted' }}">{{ u.price_label }}<div class="text-[11px] font-normal muted">MSRP {{ u.row.msrp_cents | money }}</div></td>
+          <td>{{ meter(u.fit_score, 'var(--accent)') }}</td>
+          <td>{{ meter(u.confidence_score, 'var(--model)') }}</td>
+          <td class="text-xs good">{{ u.fit_reasons | join(', ') or '—' }}</td>
+          <td class="text-xs muted">{{ u.unknowns | join(', ') or '—' }}</td>
+          <td class="text-[11px] muted whitespace-nowrap">{{ u.row.fetched_at | age }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+{% if compare %}
+<section class="panel p-5">
+  <h2 class="font-semibold">Side-by-side</h2>
+  <div class="overflow-x-auto mt-3">
+    <table class="w-full text-sm compact">
+      <thead><tr class="text-left text-[11px] uppercase tracking-wider muted"><th></th>{% for u in compare %}<th><a href="/vin/{{ u.vin }}" class="font-mono link">{{ u.vin }}</a><div class="font-normal normal-case tracking-normal muted"><a class="link" href="/dealers/{{ u.row.dealer_id }}">{{ u.row.dealer_name }}</a></div></th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for label, attr in [('Cash price', 'price_label'), ('Fit', 'fit_score'), ('Confidence', 'confidence_score')] %}
+        <tr class="border-t"><td class="muted">{{ label }}</td>{% for u in compare %}<td class="font-semibold">{{ u[attr] }}</td>{% endfor %}</tr>
+        {% endfor %}
+        {% for label, key in [('MSRP', 'msrp_cents'), ('Exterior', 'exterior_raw'), ('Interior', 'interior_raw'), ('Odometer (mi)', 'odometer_miles'), ('Availability', 'availability')] %}
+        <tr class="border-t"><td class="muted">{{ label }}</td>{% for u in compare %}<td>{{ (u.row[key] | money) if key == 'msrp_cents' else (u.row[key] if u.row[key] is not none else '—') }}</td>{% endfor %}</tr>
+        {% endfor %}
+        {% for feat in ['DAP', 'M_SPORT', 'MASSAGE', 'PANORAMIC_ROOF', 'SKY_LOUNGE', 'EXECUTIVE', 'CLIMATE_COMFORT', 'AIR_SUSPENSION'] %}
+        <tr class="border-t"><td class="muted">{{ feat | replace('_', ' ') | title }}</td>{% for u in compare %}<td>{{ tri(u.feat(feat)) }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}

@@ -1,0 +1,20 @@
+# Host crontab for a bare-metal / VM deployment (not needed with `compose` cron service).
+# Times are America/Chicago; CRON_TZ is honoured by cronie and systemd-cron; on macOS/BSD cron
+# set the host timezone instead.
+CRON_TZ=America/Chicago
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+MAILTO=owner@example.com
+
+# 06:00 daily collection run. The run writes its own row before starting, so a crash is visible.
+0 6 * * *   cd /opt/carshop && uv run carshop run --trigger cron --notify >> /var/log/carshop/run.log 2>&1
+
+# 07:00 catch-up if the 06:00 run never published. If that run already exists, the CLI
+# exits 0 ("catch-up skipped") so cron does not mail.
+0 7 * * *   cd /opt/carshop && uv run carshop run --trigger catchup --notify >> /var/log/carshop/run.log 2>&1
+
+# 07:30 heartbeat, outside the crawler: no PUBLISHED run today -> non-zero exit -> cron mail.
+30 7 * * *  cd /opt/carshop && CARSHOP_DATA_DIR=/opt/carshop/data sh deploy/heartbeat/check.sh
+
+# 03:00 weekly retention (14-day snapshots, 30-day backups) and a verified backup.
+0 3 * * 0   cd /opt/carshop && uv run carshop backup && uv run carshop prune >> /var/log/carshop/maint.log 2>&1

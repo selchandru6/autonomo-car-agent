@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Search{% endblock %}
+{% block heading %}Search{% endblock %}
+{% block content %}
+<form action="/search" method="get" class="panel p-4 flex gap-2 items-center max-w-2xl" role="search">
+  <label class="sr-only" for="searchPageQ">Search VIN, stock, dealer, city, run or page</label>
+  <input id="searchPageQ" type="search" name="q" value="{{ q }}" placeholder="VIN, last 6 of a VIN, stock, dealer, city, run date…" class="flex-1" style="font-size:14px;padding:.5rem .7rem" autofocus>
+  <button type="submit" class="chip c-on" style="padding:.45rem .9rem;font-size:13px">Search</button>
+</form>
+{% set groups = [('Pages', results.pages), ('Cars', results.cars), ('Dealers', results.dealers), ('Runs', results.runs)] %}
+{% if q and q | length < 2 %}
+<p class="muted">Type at least two characters, or a full 17-character VIN.</p>
+{% elif q and not (results.pages or results.cars or results.dealers or results.runs) %}
+<div class="panel empty-state">Nothing matches “{{ q }}”. Try the last six characters of a VIN, a dealer name, a city, or a date like 2026-10-20.</div>
+{% endif %}
+<div class="grid md:grid-cols-2 gap-6">
+  {% for title, items in groups if items %}
+  <section class="panel p-5">
+    <h2 class="text-lg">{{ title }} <span class="muted font-normal text-sm">· {{ items | length }}</span></h2>
+    <ul class="mt-3">
+      {% for it in items %}
+      <li class="py-2 border-t flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <a class="link {{ 'font-mono text-sm' if title == 'Cars' }}" href="{{ it.href }}">{{ it.label }}</a>
+        <span class="muted text-xs">{{ it.sublabel }}</span>
+        {% if it.alt %}<a class="link text-xs ml-auto" href="{{ it.alt.href }}">{{ it.alt.label }}</a>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}

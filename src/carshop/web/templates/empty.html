@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block heading %}No published runs yet{% endblock %}
+{% block content %}
+<div class="panel p-10 text-center max-w-2xl mx-auto">
+  <div class="text-5xl mb-4">◎</div>
+  <h2 class="text-xl font-semibold mb-2">No published runs yet</h2>
+  <p class="muted text-sm leading-relaxed">
+    The screen reads committed rows only. Start a collection run from the operator shell:
+  </p>
+  <pre class="mt-4 text-left text-xs code-block p-4">uv run carshop migrate-db
+uv run carshop registry-apply
+uv run carshop run --notify</pre>
+  <p class="muted text-xs mt-4">Registry: {{ coverage_summary.registry }} dealers · {{ coverage_summary.active }} active Texas dealers · {{ coverage_summary.no_source }} without a source.</p>
+</div>
+{% endblock %}
