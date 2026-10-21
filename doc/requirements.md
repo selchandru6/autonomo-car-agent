@@ -297,6 +297,8 @@ Every active registry dealer is attempted every scheduled run. Order MAY put unh
 
 ## 9. Architecture
 
+> **Superseded by [`requirements-mas.md`](requirements-mas.md) v2.0.** The run is a nine-agent LangGraph system with a live Pipeline screen. The table below is kept for history. Model use is still limited as in section 4.
+
 Logical responsibilities stay. They are not eight language-model agents.
 
 | Step | Implementation | Output |
@@ -434,7 +436,7 @@ Additional drills: layout change, rate limit 429, redirect off the allowlist, pr
 | 1. Monitor (statewide) | Every Texas registry dealer, daily run, claim-check snapshots, status model, price rules, staging, idempotent digest, external heartbeat, starter golden set, CSV export, coverage report. | Two weeks of runs reconcile to the operator’s manual checks on a sample of dealers from each platform. A failed dealer never appears as zero. Must-pass gates hold on the starter set. Wall clock within 60 minutes. |
 | 2. Coverage and enrichment | Adapters for platforms that ended `LAYOUT_UNKNOWN`, plus detail and sticker enrichment. | At least 90% of active Texas registry dealers `REPORTED`. Every remaining gap is named with a reason. |
 | 3. Screen | The six views, filters, exports, source links, empty states. | Owner checks example comparisons, price bases, gaps, and the shortlist against one published run. |
-| 4. Hardening | Restore drill, retention enforcement, budget alerts, fixture expansion, optional LangGraph if the pipeline is still plain code. | Failure drills pass, a restore reads, and a run that trips the model breaker still publishes. |
+| 4. Hardening | Restore drill, retention enforcement, budget alerts, fixture expansion. LangGraph is no longer optional: see [`requirements-mas.md`](requirements-mas.md) section 11. | Failure drills pass, a restore reads, and a run that trips the model breaker still publishes. |
 
 Phase 1 already includes the review queue, the golden-set starter, and read-error handling. Those are not deferred to Phase 4.
 
@@ -485,3 +487,5 @@ Option and color codes are taken from the BMW of North America X5 (G05 LCI) orde
 | 1.1 | 2026-10-19 | Review consolidation. F11–F24, lifecycle, price components, evidence rules, non-blocking review, safer checkpoint and schema, shortlist view. Several decisions left open. |
 | 1.2 | 2026-10-19 | Merges 1.0 and 1.1 and locks the review: M Sport in scope, true zero versus failed read, comparison price, claim-check snapshots, staging, sticker DAP codes, VIN AG codes, no bot evasion, split time targets, and safety controls in Phase 1. |
 | 1.3 | 2026-10-19 | This baseline. Statewide dealer scope: every Texas BMW dealer on the BMW USA locator is in the registry and attempted every run, under the owner’s blanket approval, with no per-dealer terms gate. Adds F25 (automatic inventory-URL and platform discovery). Coverage denominator, politeness limits, time targets, phases, and owner inputs are updated to match. Vehicle scope is unchanged (new 2026 X5 xDrive40i). Robots, honest identification, and the no-evasion rules are unchanged. |
+| 2.0 | 2026-10-20 | Architecture addendum in [`requirements-mas.md`](requirements-mas.md): nine-agent LangGraph MAS, pipeline events, live Pipeline screen, seven-layer map. Replaces section 9. Every other section is unchanged. |
+| 2.1 | 2026-10-20 | Screen addendum in [`requirements-web-ui.md`](requirements-web-ui.md): every screen in one app shell with a left menu, global search, Dealers, How it works, and the live Pipeline page. Section 11 rules apply on every page. |

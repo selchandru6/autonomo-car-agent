@@ -1,0 +1,1061 @@
+<title>Texas X5 Finder App</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: app shell. Left menu in four groups, sticky top bar with search, page area. Pipeline page is live; other menu items open a page outline. Tokens are the ApexMoonAI brand set from buyer-ui-spec.md. */
+:root {
+  --bg: #f4f7fb; --panel: #ffffff; --panel-2: #eef3f9; --line: #dbe3ee; --sidebar-bg: #ffffff;
+  --fg: #0b1220; --muted: #475569; --accent: #0e7490; --accent-soft: #e0f2f7; --gold: #b45309;
+  --model: #6d28d9; --model-soft: #ede9fe;
+  --ok-bg: #d1fae5; --ok-fg: #047857; --warn-bg: #fef3c7; --warn-fg: #92400e;
+  --bad-bg: #ffe4e6; --bad-fg: #be123c; --none-bg: #e9eef5; --none-fg: #475569;
+  --scrim: rgba(11, 18, 32, .45);
+  --font-head: "Syne", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-ui: "DM Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-data: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #020617; --panel: #0a0f1a; --panel-2: #0f172a; --line: rgba(255,255,255,.08); --sidebar-bg: #050b17;
+    --fg: #f9fafb; --muted: #9ca3af; --accent: #22d3ee; --accent-soft: rgba(34,211,238,.12); --gold: #fbbf24;
+    --model: #c4b5fd; --model-soft: rgba(139,92,246,.18);
+    --ok-bg: rgba(52,211,153,.14); --ok-fg: #34d399; --warn-bg: rgba(251,191,36,.14); --warn-fg: #fbbf24;
+    --bad-bg: rgba(251,113,133,.14); --bad-fg: #fb7185; --none-bg: rgba(148,163,184,.12); --none-fg: #9ca3af;
+    --scrim: rgba(0, 0, 0, .6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #020617; --panel: #0a0f1a; --panel-2: #0f172a; --line: rgba(255,255,255,.08); --sidebar-bg: #050b17;
+  --fg: #f9fafb; --muted: #9ca3af; --accent: #22d3ee; --accent-soft: rgba(34,211,238,.12); --gold: #fbbf24;
+  --model: #c4b5fd; --model-soft: rgba(139,92,246,.18);
+  --ok-bg: rgba(52,211,153,.14); --ok-fg: #34d399; --warn-bg: rgba(251,191,36,.14); --warn-fg: #fbbf24;
+  --bad-bg: rgba(251,113,133,.14); --bad-fg: #fb7185; --none-bg: rgba(148,163,184,.12); --none-fg: #9ca3af;
+  --scrim: rgba(0, 0, 0, .6);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 14px; line-height: 1.45; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 40; background: var(--bg); }
+svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Shell */
+.app { --sbw: 248px; display: grid; grid-template-columns: var(--sbw) minmax(0, 1fr); min-height: 100%; }
+.app.collapsed { --sbw: 64px; }
+.sidebar { position: sticky; top: 0; height: 100vh; height: 100dvh; overflow-y: auto; overflow-x: hidden; background: var(--sidebar-bg); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; padding-left: env(safe-area-inset-left, 0px); transition: width .24s var(--ease); z-index: 30; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 16px 14px; border-bottom: 1px solid var(--line); text-decoration: none; color: inherit; min-width: 0; }
+.mark { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); flex: none; }
+.mark svg.i { width: 22px; height: 22px; }
+.brand b { font-family: var(--font-head); font-weight: 700; font-size: 15px; display: block; white-space: nowrap; }
+.brand small { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.menu { flex: 1; padding: 8px 8px 12px; display: grid; align-content: start; gap: 1px; }
+.menu .grp { font-family: var(--font-data); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 14px 10px 6px; white-space: nowrap; }
+.menu a { display: flex; align-items: center; gap: 11px; padding: 8px 10px; border-radius: 8px; color: var(--fg); text-decoration: none; font-size: 13.5px; position: relative; white-space: nowrap; }
+.menu a:hover { background: var(--panel-2); }
+.menu a[aria-current="page"] { background: var(--accent-soft); font-weight: 600; }
+.menu a[aria-current="page"]::before { content: ""; position: absolute; left: -8px; top: 7px; bottom: 7px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent); }
+.menu a svg.i { color: var(--muted); }
+.menu a[aria-current="page"] svg.i { color: var(--accent); }
+.menu .count { margin-left: auto; font-family: var(--font-data); font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 99px; }
+.menu .count.warn { background: var(--warn-bg); color: var(--warn-fg); }
+.menu .count.bad { background: var(--bad-bg); color: var(--bad-fg); }
+.menu .live { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 700; color: var(--accent); letter-spacing: .04em; }
+.side-foot { border-top: 1px solid var(--line); padding: 12px; display: grid; gap: 10px; }
+.runcard { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px; display: grid; gap: 4px; font-size: 12px; min-width: 0; }
+.runcard .row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.runcard .muted { color: var(--muted); }
+.runcard a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.smallprint { font-size: 10.5px; color: var(--muted); display: grid; gap: 2px; }
+.collapse-btn { display: flex; align-items: center; gap: 8px; width: 100%; justify-content: flex-start; background: transparent; border: 1px solid var(--line); }
+.app.collapsed .lbl, .app.collapsed .grp, .app.collapsed .brand span, .app.collapsed .runcard .detail, .app.collapsed .smallprint, .app.collapsed .menu .count, .app.collapsed .menu .live .txt { display: none; }
+.app.collapsed .menu .grp { display: block; height: 10px; padding: 0; font-size: 0; }
+.app.collapsed .menu a { justify-content: center; padding: 9px 0; }
+.app.collapsed .menu .live { position: absolute; right: 8px; top: 6px; }
+.app.collapsed .brand { justify-content: center; padding: 16px 0; }
+.app.collapsed .collapse-btn { justify-content: center; }
+.app.collapsed .collapse-btn svg.i { transform: rotate(180deg); }
+.app.collapsed .runcard { padding: 8px 0; justify-items: center; }
+.scrim { display: none; }
+
+.main { min-width: 0; display: flex; flex-direction: column; }
+.topbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; display: flex; align-items: center; gap: 12px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line); padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.topbar .crumb { display: grid; min-width: 0; }
+.topbar .crumb small { font-family: var(--font-data); font-size: 10.5px; color: var(--muted); letter-spacing: .04em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.topbar h1 { font-family: var(--font-head); font-weight: 700; font-size: 19px; letter-spacing: 0; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu-btn { display: none; padding: 7px; }
+.searchbox { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 240px; color: var(--muted); background: var(--panel); text-align: left; }
+.searchbox kbd { margin-left: auto; font-family: var(--font-data); font-size: 10.5px; border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; }
+.icon-btn { padding: 7px; display: inline-grid; place-items: center; border-radius: 99px; }
+.wrap { width: 100%; max-width: 1440px; margin: 0 auto; padding-block: 18px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 16px; }
+.disclaimer { font-size: 11px; color: var(--muted); max-width: 110ch; }
+
+@media (max-width: 1023px) {
+  .app, .app.collapsed { grid-template-columns: minmax(0, 1fr); --sbw: 272px; }
+  .sidebar { position: fixed; inset: 0 auto 0 0; width: 272px; transform: translateX(-102%); transition: transform .28s var(--ease); padding-top: env(safe-area-inset-top, 0px); }
+  .app.drawer .sidebar { transform: none; }
+  .app.drawer .scrim { display: block; position: fixed; inset: 0; background: var(--scrim); z-index: 25; }
+  .app.collapsed .lbl, .app.collapsed .grp, .app.collapsed .brand span, .app.collapsed .runcard .detail, .app.collapsed .smallprint, .app.collapsed .menu .count, .app.collapsed .menu .live .txt { display: revert; }
+  .menu-btn { display: inline-grid; }
+  .collapse-btn { display: none; }
+}
+@media (max-width: 640px) { .searchbox { min-width: 0; width: 38px; padding: 7px; justify-content: center; } .searchbox .lbl, .searchbox kbd { display: none; } }
+
+/* Palette */
+.palette { position: fixed; inset: 0; z-index: 50; display: grid; justify-items: center; align-items: start; padding: 12vh 16px 16px; background: var(--scrim); }
+.palette[hidden] { display: none; }
+.palette .box { width: min(620px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 24px 60px rgba(0,0,0,.35); overflow: hidden; animation: pop .16s var(--ease); }
+@keyframes pop { from { transform: scale(.98); opacity: 0; } }
+.palette .inp { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); color: var(--muted); }
+.palette input { flex: 1; font: inherit; font-size: 15px; background: transparent; border: 0; color: var(--fg); outline: none; min-width: 0; }
+.palette .res { max-height: 52vh; overflow-y: auto; padding: 6px; }
+.palette .gh { font-family: var(--font-data); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); padding: 10px 10px 4px; }
+.palette .it { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.palette .it small { color: var(--muted); margin-left: auto; font-size: 11.5px; white-space: nowrap; }
+.palette .it[aria-selected="true"] { background: var(--accent-soft); }
+.palette .empty { padding: 18px; color: var(--muted); text-align: center; }
+
+/* Page outline (non-pipeline menu items) */
+.outline { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .outline { grid-template-columns: minmax(0, 1fr); } }
+.outline h2.t { font-family: var(--font-head); font-weight: 700; font-size: 24px; letter-spacing: 0; text-transform: none; color: var(--fg); margin: 6px 0 4px; }
+.outline p { margin: 0 0 10px; color: var(--muted); max-width: 65ch; }
+.outline ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.outline .meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.outline code { font-family: var(--font-data); font-size: 12px; }
+.c-new { background: var(--accent-soft); color: var(--accent); }
+.dtable { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.dtable th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.dtable td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.tbl-scroll { overflow-x: auto; }
+h1.legacy { font-size: 22px; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font-size: 12px; margin: 0; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+.eyebrow { font-family: var(--font-data); font-size: 11px; color: var(--muted); letter-spacing: .04em; }
+.sub { margin: 4px 0 0; color: var(--muted); max-width: 72ch; }
+.sub code { font-family: var(--font-data); font-size: 12px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.hint { color: var(--muted); font-size: 12px; }
+.num { font-variant-numeric: tabular-nums; font-family: var(--font-data); }
+
+/* Run bar */
+.runbar { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; }
+.runbar .field { display: grid; gap: 2px; min-width: 0; }
+.runbar .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.meter { height: 6px; width: 140px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; }
+.meter > div { height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+.meter.model > div { background: var(--model); }
+.controls { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+button { font: inherit; font-size: 13px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; border-radius: 0; background: var(--panel); padding: 6px 10px; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--fg); font-weight: 600; }
+select { font: inherit; font-size: 12px; color: var(--fg); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; letter-spacing: .02em; white-space: nowrap; }
+.c-running { background: var(--accent-soft); color: var(--fg); }
+.c-published, .c-reported { background: var(--ok-bg); color: var(--ok-fg); }
+.c-partial { background: var(--warn-bg); color: var(--warn-fg); }
+.c-not_reported { background: var(--bad-bg); color: var(--bad-fg); }
+.c-no_source, .c-queued { background: var(--none-bg); color: var(--none-fg); }
+.c-model { background: var(--model-soft); color: var(--model); }
+.c-rules { background: var(--none-bg); color: var(--none-fg); }
+.pulse-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; animation: blink 1.2s infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+
+/* Graph */
+.graph-scroll { overflow-x: auto; }
+svg.graph { display: block; width: 100%; min-width: 980px; height: auto; }
+.g-frame { fill: none; stroke: var(--line); stroke-dasharray: 4 4; }
+.g-frame-label { fill: var(--muted); font-size: 11px; font-family: var(--font-data); }
+.g-edge { fill: none; stroke: var(--line); stroke-width: 2; }
+.g-edge.alt { stroke-dasharray: 3 4; }
+.g-edge-label { fill: var(--muted); font-size: 10px; font-family: var(--font-data); }
+.g-node rect.body { fill: var(--panel-2); stroke: var(--line); stroke-width: 1.5; transition: stroke .2s, fill .2s; }
+.g-node.active rect.body { stroke: var(--accent); stroke-width: 2.5; fill: var(--accent-soft); }
+.g-node.active rect.body { animation: glow 1.1s ease-in-out infinite; }
+.g-node.flash rect.body { stroke: var(--bad-fg); fill: var(--bad-bg); animation: none; }
+@keyframes glow { 50% { stroke-opacity: .35; } }
+.g-name { fill: var(--fg); font-size: 13px; font-weight: 600; }
+.g-stage { fill: var(--muted); font-size: 11px; }
+.g-count { fill: var(--fg); font-size: 11px; font-family: var(--font-data); }
+.g-badge rect { stroke: none; }
+.g-badge.model rect { fill: var(--model-soft); } .g-badge.model text { fill: var(--model); }
+.g-badge.rules rect { fill: var(--none-bg); } .g-badge.rules text { fill: var(--none-fg); }
+.g-badge text { font-size: 9px; font-weight: 700; letter-spacing: .06em; }
+.g-sink rect { fill: var(--panel); stroke: var(--bad-fg); stroke-dasharray: 3 3; stroke-opacity: .6; }
+.g-sink .g-name { fill: var(--bad-fg); }
+.pkt circle { fill: var(--accent); }
+.pkt.out circle { fill: var(--bad-fg); }
+.pkt.fail circle { fill: var(--warn-fg); }
+.pkt text { fill: var(--fg); font-size: 10px; font-family: var(--font-data); paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 12px; color: var(--muted); align-items: center; }
+.legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: -1px; margin-right: 5px; }
+
+/* Funnel */
+.funnel { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 0; }
+.fstep { padding: 8px 10px; border-left: 1px solid var(--line); min-width: 0; }
+.fstep:first-child { border-left: 0; }
+.fstep .v { font-family: var(--font-data); font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fstep .k { font-size: 11px; color: var(--muted); }
+.fstep.out .v { color: var(--bad-fg); }
+.fstep.good .v { color: var(--ok-fg); }
+.fstep .v.bump { animation: bump .5s; }
+@keyframes bump { 30% { color: var(--accent); } }
+@media (max-width: 900px) { .funnel { grid-template-columns: repeat(3, minmax(0, 1fr)); } .fstep { border-left: 0; border-top: 1px solid var(--line); } }
+
+/* Bottom grid */
+.bottom { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.side { display: grid; gap: 16px; min-width: 0; }
+@media (max-width: 1000px) { .bottom { grid-template-columns: minmax(0, 1fr); } }
+
+/* Lanes */
+.lanes { display: grid; gap: 4px; max-height: 620px; overflow-y: auto; }
+.lane-head, .lane { display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(6, 1fr) minmax(0, 1.25fr); gap: 4px; align-items: center; }
+.lane-head { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 0 6px 4px; position: sticky; top: 0; background: var(--panel); z-index: 1; }
+.lane { padding: 5px 6px; border-radius: 8px; border: 1px solid transparent; }
+.lane.running { border-color: var(--line); background: var(--panel-2); }
+.lane .who { min-width: 0; }
+.lane .who b { display: block; font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lane .who span { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.cell { height: 10px; border-radius: 3px; background: var(--panel-2); border: 1px solid var(--line); }
+.cell.done { background: var(--accent); border-color: var(--accent); opacity: .55; }
+.cell.active { background: var(--accent); border-color: var(--accent); animation: blink 0.9s infinite; }
+.cell.skip { background: transparent; border-style: dashed; opacity: .6; }
+.cell.err { background: var(--bad-fg); border-color: var(--bad-fg); }
+.lane .res { display: grid; gap: 2px; justify-items: start; min-width: 0; }
+.lane .res small { font-size: 10.5px; color: var(--muted); font-family: var(--font-data); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+@media (max-width: 560px) { .lane-head .st { visibility: hidden; } .lane-head, .lane { grid-template-columns: minmax(0, 1.4fr) repeat(6, 10px) minmax(0, 1.3fr); } }
+
+/* Layers */
+.layers { display: grid; gap: 4px; }
+.layer { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 8px; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); transition: background .25s, border-color .25s; }
+.layer .id { font-family: var(--font-data); font-weight: 600; color: var(--muted); font-size: 12px; }
+.layer b { font-size: 12.5px; }
+.layer small { display: block; color: var(--muted); font-family: var(--font-data); font-size: 10.5px; overflow-wrap: anywhere; }
+.layer.hot { background: var(--accent-soft); border-color: var(--accent); }
+.layer.hot .id { color: var(--fg); }
+.layer.cross { border-style: dashed; background: transparent; }
+
+/* Log */
+.log { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow-y: auto; display: grid; gap: 2px; font-size: 12px; }
+.log li { display: grid; grid-template-columns: 44px 44px 84px minmax(0, 1fr); gap: 6px; padding: 3px 4px; border-radius: 6px; align-items: baseline; }
+.log li.error { background: var(--bad-bg); }
+.log .seq, .log .t { font-family: var(--font-data); color: var(--muted); font-size: 11px; }
+.log .ag { font-weight: 600; font-size: 11px; }
+.log .msg { min-width: 0; overflow-wrap: anywhere; }
+.log .msg em { font-style: normal; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .g-node.active rect.body, .cell.active, .pulse-dot, .fstep .v.bump { animation: none; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-car" viewBox="0 0 24 24"><path d="M3 13l2-5a2 2 0 0 1 1.9-1.3h10.2A2 2 0 0 1 19 8l2 5v4h-2.5M3 13v4h2.5M3 13h18M8.8 17h6.4"/><circle cx="7" cy="17" r="1.8"/><circle cx="17" cy="17" r="1.8"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></symbol>
+  <symbol id="i-store" viewBox="0 0 24 24"><path d="M3 9l1.5-5h15L21 9M3 9v11h18V9M3 9h18M9 20v-6h6v6"/></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></symbol>
+  <symbol id="i-health" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></symbol>
+  <symbol id="i-runs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M3 13l3-8h12l3 8v6H3zM3 13h5l1.5 2.5h5L16 13h5"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5zM3 12.5l9 5 9-5M3 16.5l9 5 9-5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+  <symbol id="i-collapse" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
+</svg>
+
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar" aria-label="Sidebar">
+    <a class="brand" href="#find" data-nav="find"><span class="mark"><svg class="i"><use href="#i-car"/></svg></span><span><b>Texas X5 Finder</b><small>2026 X5 xDrive40i · Texas</small></span></a>
+    <nav class="menu" id="menu" aria-label="Main"></nav>
+    <div class="side-foot">
+      <div class="runcard" id="runcard"></div>
+      <div class="smallprint"><span>v0.1 · 8a20b6b · API docs</span><span>An ApexMoonAI project</span></div>
+      <button type="button" class="collapse-btn" id="collapseBtn" aria-label="Collapse menu"><svg class="i"><use href="#i-collapse"/></svg><span class="lbl">Collapse</span></button>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+
+  <div class="main">
+    <header class="topbar">
+      <button type="button" class="menu-btn" id="menuBtn" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar"><svg class="i"><use href="#i-menu"/></svg></button>
+      <div class="crumb"><small id="crumbGroup">Pipeline · /pipeline</small><h1 id="pageTitle">Live pipeline</h1></div>
+      <button type="button" class="searchbox" id="searchBtn" aria-label="Search cars, dealers, runs and pages"><svg class="i"><use href="#i-search"/></svg><span class="lbl">Search VIN, dealer, run…</span><kbd id="kbdHint">Ctrl K</kbd></button>
+      <button type="button" class="icon-btn" id="themeToggle" aria-label="Switch theme"><svg class="i"><use id="themeIcon" href="#i-sun"/></svg></button>
+    </header>
+
+<div class="wrap" id="view-page" hidden></div>
+
+<div class="wrap" id="view-pipeline">
+  <header>
+    <div class="eyebrow">carshop · /pipeline · prototype</div>
+    <p class="sub">Prototype of the unified app in <code>doc/requirements-web-ui.md</code>. Use the left menu to see every screen. This page replays <strong>simulated sample data</strong> over the real Texas registry list. Statuses and counts are invented, not real dealer results.</p>
+  </header>
+
+  <section class="panel runbar" aria-label="Run">
+    <div class="field"><span class="label">Run</span><span class="num" id="runId">r-20261020-0600-cron</span></div>
+    <div class="field"><span class="label">Status</span><span id="runStatus" class="chip c-running"><span class="pulse-dot"></span>RUNNING</span></div>
+    <div class="field"><span class="label">Elapsed / 60:00 target</span><span class="num" id="elapsed">00:00</span><div class="meter"><div id="elapsedBar"></div></div></div>
+    <div class="field"><span class="label">Dealers finished</span><span class="num" id="dealersDone">0 / 27</span></div>
+    <div class="field"><span class="label">Model spend / $0.15 breaker</span><span class="num" id="spend">$0.000</span><div class="meter model"><div id="spendBar"></div></div></div>
+    <div class="controls">
+      <span class="chip c-queued">Replay</span>
+      <div class="seg" role="group" aria-label="Replay speed">
+        <button type="button" id="sp8" data-speed="8" aria-pressed="false">8×</button>
+        <button type="button" id="sp32" data-speed="32" aria-pressed="true">32×</button>
+        <button type="button" id="sp128" data-speed="128" aria-pressed="false">128×</button>
+      </div>
+      <button type="button" id="playBtn">Pause</button>
+      <button type="button" id="restartBtn">Restart</button>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Agent graph">
+    <div class="panel-head">
+      <h2>Agent graph · LangGraph</h2>
+      <span class="hint">Lit nodes are working now. Dots are records handed from one agent to the next.</span>
+    </div>
+    <div class="graph-scroll"><svg class="graph" id="graph" viewBox="0 0 1324 312" role="img" aria-label="Nine agents in pipeline order with the dealer subgraph in the middle"></svg></div>
+    <div class="legend">
+      <span><span class="chip c-rules">RULES</span> deterministic agent</span>
+      <span><span class="chip c-model">MODEL</span> may call the model (capped at two agents)</span>
+      <span><span class="dot" style="background:var(--accent)"></span>records handed off</span>
+      <span><span class="dot" style="background:var(--bad-fg)"></span>filtered out</span>
+      <span><span class="dot" style="background:var(--warn-fg)"></span>dealer not read, straight to Store</span>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Stage funnel">
+    <div class="panel-head"><h2>Stage funnel · this run</h2><span class="hint">Collected → validated → filtered → enriched → stored</span></div>
+    <div class="funnel" id="funnel"></div>
+  </section>
+
+  <div class="bottom">
+    <section class="panel" aria-label="Dealer lanes">
+      <div class="panel-head"><h2>Dealer branches</h2><span class="hint" id="laneHint">Running branches sort to the top (max 4)</span></div>
+      <div class="lanes" id="lanes"></div>
+    </section>
+    <div class="side">
+      <section class="panel" aria-label="Layers">
+        <div class="panel-head"><h2>Layers</h2><span class="hint">Highlighted while an agent uses them</span></div>
+        <div class="layers" id="layers"></div>
+      </section>
+      <section class="panel" aria-label="Event log">
+        <div class="panel-head">
+          <h2>Event log</h2>
+          <label class="hint" for="logFilter">Agent
+            <select id="logFilter"><option value="">All</option></select>
+          </label>
+        </div>
+        <ol class="log" id="log"></ol>
+      </section>
+    </div>
+  </div>
+</div>
+
+    <footer class="wrap" style="padding-block: 0 28px">
+      <p class="disclaimer">Advertised cash prices exclude tax, title and dealer fees unless itemised. MSRP is never substituted for a price. A VIN that disappears is missing, unverified, never a sale. A dealer that was not read is a gap, not zero. Nothing on this screen is a forecast. Unknown is not No.</p>
+    </footer>
+  </div>
+</div>
+
+<div class="palette" id="palette" hidden role="dialog" aria-modal="true" aria-label="Search">
+  <div class="box">
+    <div class="inp"><svg class="i"><use href="#i-search"/></svg><input id="palInput" type="text" placeholder="Search VIN, stock number, dealer, city, run or page" autocomplete="off" aria-controls="palRes"><kbd style="font-family:var(--font-data);font-size:10.5px;border:1px solid var(--line);border-radius:5px;padding:0 5px">Esc</kbd></div>
+    <div class="res" id="palRes" role="listbox"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const DEALERS = [
+    ["Autoplex BMW","Amarillo","dealer_com"],["BMW of Arlington","Arlington","dealer_inspire"],["BMW of Austin","Austin","dealer_inspire"],
+    ["BMW of South Austin","Austin","dealer_com"],["BMW of Beaumont","Beaumont","other"],["BMW of College Station","College Station","unknown"],
+    ["BMW of Corpus Christi","Corpus Christi","dealer_com"],["BMW of Dallas","Dallas","dealer_com"],["BMW of El Paso","El Paso","dealer_inspire"],
+    ["Autobahn Motorcars","Fort Worth","dealer_inspire"],["BMW of Grapevine","Grapevine","dealer_inspire"],["Cardenas BMW","Harlingen","unknown"],
+    ["BMW of Houston Midtown","Houston","dealer_inspire"],["BMW of Houston North","Houston","dealer_com"],["Momentum BMW","Houston","dealer_com"],
+    ["BMW of West Houston","Katy","dealer_com"],["BMW of Lubbock","Lubbock","dealer_com"],["BMW of McKinney","McKinney","dealer_inspire"],
+    ["BMW of the Permian Basin","Midland","other"],["BMW of Pharr","Pharr","dealer_inspire"],["BMW of Plano","Plano","dealer_inspire"],
+    ["BMW of San Antonio","San Antonio","dealer_com"],["BMW of Temple","Temple","dealeron"],["BMW of The Woodlands","The Woodlands","dealer_com"],
+    ["BMW of Tyler","Tyler","dealer_inspire"],["BMW of Clear Lake","Webster","dealer_inspire"],["BMW of Wichita Falls","Wichita Falls","dealer_com"]
+  ].map(([name, city, platform], i) => ({ id: "d" + i, name, city, platform }));
+
+  // Simulated outcomes (sample data, not real results)
+  const FORCED = {
+    "Cardenas BMW": ["NO_SOURCE", "no_hostname"],
+    "BMW of College Station": ["NOT_REPORTED", "LAYOUT_UNKNOWN"],
+    "BMW of the Permian Basin": ["NOT_REPORTED", "CAPTCHA"],
+    "BMW of Beaumont": ["PARTIAL", "PAGINATION_INCOMPLETE"],
+    "BMW of Temple": ["PARTIAL", "TIMEOUT"],
+  };
+  const UNHEALTHY_LAST_RUN = ["BMW of College Station", "BMW of the Permian Basin", "BMW of Beaumont"];
+
+  const NODES = [
+    { id: "supervisor", agent: "supervisor", name: "Supervisor", stage: "Plan · fan-out · publish", mode: "model", tools: "pipeline admission, config loaders, runs repo" },
+    { id: "collector",  agent: "collector",  name: "Collector",  stage: "Collect", mode: "rules", tools: "safety.*, fetch.http, fetch.browser, fetch.artifacts, adapters.detect" },
+    { id: "extractor",  agent: "extractor",  name: "Extractor",  stage: "Extract", mode: "model", tools: "adapters.*, extract.llm.PackageResolver" },
+    { id: "validate",   agent: "validator",  name: "Validator",  stage: "Validate · filter", mode: "rules", tools: "domain.vin, domain.classify, domain.pricing" },
+    { id: "enricher",   agent: "enricher",   name: "Enricher",   stage: "Enrich", mode: "rules", tools: "detail pages, allowlisted stickers, domain.features" },
+    { id: "gate",       agent: "validator",  name: "Validator",  stage: "Completeness gate", mode: "rules", tools: "F19 gates, staging status" },
+    { id: "recorder",   agent: "recorder",   name: "Recorder",   stage: "Store", mode: "rules", tools: "storage.repos, one transaction per dealer" },
+    { id: "comparator", agent: "comparator", name: "Comparator", stage: "Compare", mode: "rules", tools: "pipeline.compare, domain.lifecycle" },
+    { id: "notifier",   agent: "notifier",   name: "Notifier",   stage: "Publish digest", mode: "rules", tools: "pipeline.notify, storage.backup" },
+  ];
+  const W = 124, H = 72, Y = 120, X0 = 16, STEP = 146;
+  NODES.forEach((n, i) => { n.x = X0 + i * STEP; n.y = Y; });
+  const N = Object.fromEntries(NODES.map(n => [n.id, n]));
+  N.registry = { id: "registry", agent: "registry", name: "Registry", stage: "Discover (if stale)", mode: "rules", x: X0, y: 16, h: 52, tools: "registry.locator, registry.discovery, registry.build" };
+  N.excluded = { id: "excluded", name: "Excluded", x: N.validate.x, y: 246, h: 52 };
+
+  const LANE_NODES = ["collector", "extractor", "validate", "enricher", "gate", "recorder"];
+  const LANE_LABELS = ["Collect", "Extract", "Validate", "Enrich", "Gate", "Store"];
+
+  const LAYERS = [
+    { id: "L1", name: "Sources", mods: "BMW USA locator · dealer sites · sticker hosts", agents: ["collector", "enricher", "registry"] },
+    { id: "L2", name: "Access and safety", mods: "safety/ · fetch/", agents: ["collector", "enricher", "registry"] },
+    { id: "L3", name: "Extraction", mods: "adapters/ · extract/", agents: ["extractor", "enricher"] },
+    { id: "L4", name: "Domain rules", mods: "domain/ · reference/", agents: ["validator", "enricher", "comparator"] },
+    { id: "L5", name: "Agents and orchestration", mods: "agents/ · graph/ · registry/", agents: ["*"] },
+    { id: "L6", name: "Storage", mods: "storage/ · events.sqlite · checkpoints.sqlite", agents: ["recorder", "comparator", "notifier"] },
+    { id: "L7", name: "Delivery", mods: "web/ · notify digest · export/ · cli.py", agents: ["notifier"] },
+  ];
+
+  const AGENT_COLORS = { supervisor: "var(--accent)", registry: "var(--muted)", collector: "var(--accent)", extractor: "var(--model)", validator: "var(--ok-fg)", enricher: "var(--accent)", recorder: "var(--ok-fg)", comparator: "var(--warn-fg)", notifier: "var(--warn-fg)" };
+
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---------- event script ----------
+  function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const EXCL_CODES = ["NOT_XDRIVE40I", "POWERTRAIN_OTHER", "MODEL_X5M", "NOT_X5", "USED_OR_CPO", "DEMO_MILEAGE", "NOT_MY2026"];
+
+  function buildScript() {
+    const rnd = mulberry32(20261020);
+    const r = (a, b) => a + rnd() * (b - a);
+    const ri = (a, b) => Math.floor(r(a, b + 1));
+    const ev = [];
+    const push = (t, e) => ev.push(Object.assign({ t }, e));
+    const hand = (t, from, to, label, cls) => push(t, { kind: "handoff", from, to, label, cls });
+
+    push(0, { agent: "supervisor", node: "supervisor", kind: "start", msg: "Run admitted: cron trigger for Chicago date 2026-10-20" });
+    hand(0.6, "supervisor", "registry", "check");
+    push(0.8, { agent: "registry", node: "registry", kind: "start", msg: "Checking locator snapshot age" });
+    push(2.2, { agent: "registry", node: "registry", kind: "end", msg: "Snapshot is 0 days old. 27 active Texas dealers, discovery skipped" });
+    hand(2.3, "registry", "supervisor", "27 dealers");
+    push(3.6, { agent: "supervisor", node: "supervisor", kind: "progress", spend: 0.002, msg: "Model ordered the queue: 3 dealers unhealthy last run go first" });
+    push(4.6, { agent: "supervisor", node: "supervisor", kind: "end", msg: "Fan-out: 27 dealer branches with Send, max 4 parallel" });
+
+    const order = [...DEALERS].sort((a, b) => (UNHEALTHY_LAST_RUN.includes(b.name) - UNHEALTHY_LAST_RUN.includes(a.name)));
+    const slots = [5, 5.4, 5.8, 6.2];
+    for (const d of order) {
+      let s = 0; for (let i = 1; i < 4; i++) if (slots[i] < slots[s]) s = i;
+      slots[s] = branch(d, slots[s]) + 0.4;
+    }
+    let t = Math.max(...slots) + 1;
+    hand(t, "recorder", "comparator", "27 outcomes");
+    push(t + 0.8, { agent: "comparator", node: "comparator", kind: "start", msg: "Cutoff reached: comparing each REPORTED dealer to its last good run" });
+    push(t + 4, { agent: "comparator", node: "comparator", kind: "progress", msg: "6 added, 4 MISSING_UNVERIFIED, 3 same-VIN price changes, 1 TRANSFER_SUSPECTED" });
+    push(t + 7, { agent: "comparator", node: "comparator", kind: "end", msg: "Deltas written against baseline runs. PARTIAL and NOT_REPORTED dealers emit no removals" });
+    hand(t + 7.2, "comparator", "notifier", "deltas");
+    push(t + 8, { agent: "notifier", node: "notifier", kind: "start", msg: "Rendering dated digest" });
+    push(t + 11, { agent: "notifier", node: "notifier", kind: "end", msg: "Digest queued, deduplicated on (run_id, recipient). Backup written after commit" });
+    hand(t + 11.2, "notifier", "supervisor", "done", "back");
+    push(t + 12, { agent: "supervisor", node: "supervisor", kind: "start", msg: "Publishing run" });
+    push(t + 13, { agent: "supervisor", node: "supervisor", kind: "end", publish: true, msg: "Run PUBLISHED: 22 REPORTED, 2 PARTIAL, 2 NOT_REPORTED, 1 NO_SOURCE" });
+
+    function branch(d, t) {
+      const forced = FORCED[d.name];
+      const D = d.id;
+      const e = (node, kind, msg, extra) => push(t, Object.assign({ agent: N[node].agent, node, dealer: D, kind, msg }, extra || {}));
+      hand(t, "supervisor", "collector", d.name.replace(/^BMW of /, ""));
+      t += 0.6; e("collector", "start", "Branch started");
+
+      if (forced && forced[0] === "NO_SOURCE") {
+        t += 0.4; e("collector", "end", "No inventory URL in registry: NO_SOURCE / no_hostname", { status: "NO_SOURCE", reason: "no_hostname" });
+        hand(t, "collector", "recorder", "no source", "fail");
+        t += 1; e("recorder", "start", "Writing dealer_runs row");
+        t += 0.6; e("recorder", "end", "Stored explicit non-report. Counted in the coverage denominator", { final: ["NO_SOURCE", "no_hostname"] });
+        return t;
+      }
+      t += r(1, 2); e("collector", "progress", "robots.txt re-read and hashed: inventory path allowed", { pages: 0 });
+      const browser = d.platform === "dealer_com" || d.platform === "unknown" || d.platform === "other";
+      if (browser) { t += r(2, 4); e("collector", "progress", "HTTP 403 from edge. Escalating to one Chromium render (identified as carshop/0.1)"); t += r(10, 16); }
+
+      if (forced && forced[0] === "NOT_REPORTED") {
+        const reason = forced[1];
+        t += r(3, 6);
+        const msg = reason === "CAPTCHA" ? "Challenge page after browser render. Not bypassed" : "Rendered page matched no known layout";
+        e("collector", "error", msg + ": NOT_REPORTED / " + reason, { status: "NOT_REPORTED", reason });
+        hand(t, "collector", "recorder", "not read", "fail");
+        t += 1; e("recorder", "start", "Writing dealer_runs row");
+        t += 0.6; e("recorder", "end", "Stored NOT_REPORTED. No observation rows, stock series keeps a gap", { final: ["NOT_REPORTED", reason] });
+        return t;
+      }
+
+      const pages = d.name === "BMW of Arlington" ? 4 : ri(1, 3);
+      const partialPages = forced && forced[1] === "PAGINATION_INCOMPLETE";
+      let read = 0;
+      for (let p = 1; p <= pages; p++) {
+        if (partialPages && p === pages) { t += r(5, 9); e("collector", "error", `Page ${p} of ${pages} failed after 2 retries (HTTP 429)`, { reason: "PAGINATION_INCOMPLETE" }); break; }
+        t += r(5, 10); read++;
+        e("collector", "progress", `Page ${p} of ${pages} saved to claim-check, sha256 ${Math.floor(rnd() * 0xffffff).toString(16).padStart(6, "0")}…`, { pages: 1 });
+      }
+      t += 0.4; e("collector", "end", `${read} page${read > 1 ? "s" : ""} read`);
+      hand(t, "collector", "extractor", `${read} pg`);
+
+      t += 0.5; e("extractor", "start", `Parsing with ${d.platform} adapter`);
+      const listings = read * ri(6, 22);
+      t += r(1.5, 3);
+      let spend = 0;
+      if (rnd() < 0.3) { spend = 0.003 * ri(1, 2); e("extractor", "progress", "Model resolved ambiguous package text. Quotes verified as exact substrings", { spend }); t += r(1, 2); }
+      e("extractor", "end", `${listings} listings extracted`, { listings });
+      hand(t, "extractor", "validate", `${listings}`);
+
+      t += 0.5; e("validate", "start", "VIN checksum, AG code, year, condition, price rules");
+      const vinBad = rnd() < 0.15 ? 1 : 0;
+      const eligible = Math.max(0, Math.round((listings - vinBad) * r(0.18, 0.42)));
+      const excluded = listings - eligible;
+      const top = [EXCL_CODES[ri(0, 3)], EXCL_CODES[ri(3, 6)]];
+      t += r(0.8, 1.6);
+      e("validate", "end", `${eligible} eligible, ${excluded} filtered out (${top.join(", ")}${vinBad ? ", VIN_CHECKSUM_FAIL" : ""})`, { vinOk: listings - vinBad, eligible, excluded });
+      if (excluded) hand(t, "validate", "excluded", `${excluded} out`, "out");
+
+      let enriched = 0;
+      if (eligible > 0) {
+        hand(t + 0.05, "validate", "enricher", `${eligible} cars`);
+        t += 0.5; e("enricher", "start", "Detail pages and allowlisted stickers for eligible units");
+        const timeout = forced && forced[1] === "TIMEOUT";
+        const n = timeout ? Math.max(1, Math.floor(eligible / 2)) : eligible;
+        for (let i = 0; i < n; i += 3) { t += r(6, 10); enriched = Math.min(n, i + 3); e("enricher", "progress", `${enriched} of ${eligible} enriched. DAP evidence: ${ri(0, 2)} YES, rest UNKNOWN`); }
+        if (timeout) { t += 2; e("enricher", "error", "Branch reached the 10-minute timeout. Keeping pages already read", { reason: "TIMEOUT" }); }
+        e("enricher", "end", `${enriched} enriched with feature evidence`, { enriched });
+        hand(t, "enricher", "gate", `${eligible}`);
+      } else {
+        hand(t, "validate", "gate", "0 cars", "skip");
+      }
+
+      t += 0.5; e("gate", "start", "Completeness gates (F19) and staging status");
+      let status = "REPORTED", reason = "";
+      if (forced) { status = forced[0]; reason = forced[1]; }
+      const pending = status === "REPORTED" && eligible > 0 && rnd() < 0.2 ? 1 : 0;
+      t += 0.6;
+      e("gate", "end", `${status}${reason ? " / " + reason : ""}${pending ? ". 1 unit PENDING_REVIEW (PRICE_IMPLAUSIBLE)" : ""}${eligible === 0 && status === "REPORTED" ? ". Rendered true zero" : ""}`, { status, reason, pending });
+      hand(t, "gate", "recorder", `${eligible - pending}`);
+
+      t += 0.5; e("recorder", "start", "Opening one transaction for this dealer");
+      t += r(0.6, 1.2);
+      e("recorder", "end", `Committed ${eligible - pending} VALIDATED observation${eligible - pending === 1 ? "" : "s"}, ${excluded} exclusions`, { stored: eligible - pending, final: [status, reason], eligibleFinal: eligible });
+      return t;
+    }
+
+    ev.sort((a, b) => a.t - b.t);
+    ev.forEach((e, i) => { e.seq = i + 1; });
+    return ev;
+  }
+
+  // ---------- SVG graph ----------
+  const svg = document.getElementById("graph");
+  const NS = "http://www.w3.org/2000/svg";
+  const el = (tag, attrs, parent) => { const x = document.createElementNS(NS, tag); for (const k in attrs) x.setAttribute(k, attrs[k]); if (parent) parent.appendChild(x); return x; };
+  const nodeEls = {};
+
+  const fx0 = N.collector.x - 10, fx1 = N.recorder.x + W + 10;
+  el("rect", { class: "g-frame", x: fx0, y: 96, width: fx1 - fx0, height: 136, rx: 14 }, svg);
+  el("text", { class: "g-frame-label", x: fx0 + 10, y: 90 }, svg).textContent = "Dealer subgraph · one branch per dealer (Send) · max 4 in parallel · 10 min timeout";
+
+  function edgePath(from, to) {
+    const a = N[from], b = N[to];
+    const cy = n => n.y + (n.h || H) / 2;
+    if (from === "supervisor" && to === "registry") return [[a.x + 40, a.y], [b.x + 40, b.y + b.h]];
+    if (from === "registry" && to === "supervisor") return [[a.x + 84, a.y + a.h], [b.x + 84, b.y]];
+    if (to === "excluded") return [[a.x + W / 2, a.y + H], [b.x + W / 2, b.y]];
+    if (from === "collector" && to === "recorder") return [[a.x + W / 2, a.y], [a.x + W / 2, 106], [b.x + W / 2, 106], [b.x + W / 2, b.y]];
+    if (from === "validate" && to === "gate") return [[a.x + W * 0.8, a.y + H], [a.x + W * 0.8, 220], [b.x + W * 0.25, 220], [b.x + W * 0.25, b.y + H]];
+    if (from === "notifier" && to === "supervisor") return [[a.x + W / 2, a.y + H], [a.x + W / 2, 300], [b.x + W / 2, 300], [b.x + W / 2, b.y + H]];
+    if (from === "recorder" && to === "comparator") return [[a.x + W, cy(a)], [b.x, cy(b)]];
+    return [[a.x + W, cy(a)], [b.x, cy(b)]];
+  }
+  const drawEdge = (from, to, cls, label, lx, ly) => {
+    const p = edgePath(from, to);
+    el("path", { class: "g-edge " + (cls || ""), d: "M" + p.map(q => q.join(",")).join(" L") }, svg);
+    if (label) el("text", { class: "g-edge-label", x: lx, y: ly }, svg).textContent = label;
+  };
+  for (let i = 0; i < NODES.length - 1; i++) drawEdge(NODES[i].id, NODES[i + 1].id);
+  drawEdge("supervisor", "registry", "alt");
+  el("text", { class: "g-edge-label", x: N.registry.x + W + 8, y: 50 }, svg).textContent = "only when snapshot > 30 days";
+  drawEdge("collector", "recorder", "alt", "not read / no source → store the non-report", N.extractor.x + 10, 103);
+  drawEdge("validate", "gate", "alt", "0 eligible", N.enricher.x + 36, 216);
+  drawEdge("validate", "excluded", "");
+  drawEdge("notifier", "supervisor", "alt", "publish", N.comparator.x + 40, 296);
+
+  function drawNode(n) {
+    const h = n.h || H;
+    const g = el("g", { class: "g-node", transform: `translate(${n.x},${n.y})` }, svg);
+    el("title", {}, g).textContent = `${n.name}: ${n.stage}. Tools: ${n.tools}`;
+    el("rect", { class: "body", width: W, height: h, rx: 10 }, g);
+    el("text", { class: "g-name", x: 10, y: 20 }, g).textContent = n.name;
+    el("text", { class: "g-stage", x: 10, y: 35 }, g).textContent = n.stage;
+    const badge = el("g", { class: "g-badge " + n.mode, transform: `translate(${W - (n.mode === "model" ? 48 : 44)},8)` }, g);
+    el("rect", { width: n.mode === "model" ? 40 : 36, height: 15, rx: 7.5 }, badge);
+    el("text", { x: n.mode === "model" ? 20 : 18, y: 11, "text-anchor": "middle" }, badge).textContent = n.mode === "model" ? "MODEL" : "RULES";
+    const c = el("text", { class: "g-count", x: 10, y: h - 10 }, g);
+    c.textContent = "idle";
+    nodeEls[n.id] = { g, c };
+  }
+  NODES.forEach(drawNode); drawNode(N.registry);
+  {
+    const n = N.excluded;
+    const g = el("g", { class: "g-sink", transform: `translate(${n.x},${n.y})` }, svg);
+    el("rect", { width: W, height: n.h, rx: 10 }, g);
+    el("text", { class: "g-name", x: 10, y: 20 }, g).textContent = "Excluded";
+    const c = el("text", { class: "g-count", x: 10, y: 40 }, g); c.textContent = "0 rows · reason + quote";
+    nodeEls.excluded = { g, c };
+  }
+  const pktLayer = el("g", {}, svg);
+
+  // ---------- packets ----------
+  let packets = [];
+  function spawnPacket(e) {
+    if (reduceMotion || packets.length >= 60) return;
+    const pts = edgePath(e.from, e.to);
+    const segs = []; let len = 0;
+    for (let i = 1; i < pts.length; i++) { const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); segs.push(l); len += l; }
+    const g = el("g", { class: "pkt " + (e.cls || "") }, pktLayer);
+    el("circle", { r: 6 }, g);
+    const tx = el("text", { x: 0, y: -10, "text-anchor": "middle" }, g); tx.textContent = e.label || "";
+    packets.push({ g, pts, segs, len, born: performance.now(), dur: 650 + len * 0.6 });
+  }
+  function stepPackets(now) {
+    packets = packets.filter(p => {
+      const k = Math.min(1, (now - p.born) / p.dur);
+      let d = k * p.len, i = 0;
+      while (i < p.segs.length - 1 && d > p.segs[i]) { d -= p.segs[i]; i++; }
+      const a = p.pts[i], b = p.pts[i + 1], f = p.segs[i] ? d / p.segs[i] : 1;
+      p.g.setAttribute("transform", `translate(${a[0] + (b[0] - a[0]) * f},${a[1] + (b[1] - a[1]) * f})`);
+      p.g.style.opacity = k > 0.9 ? (1 - k) * 10 : 1;
+      if (k >= 1) { p.g.remove(); return false; }
+      return true;
+    });
+  }
+
+  // ---------- state + render ----------
+  const FUNNEL = [
+    ["dealers", "Dealers attempted"], ["pages", "Pages collected"], ["listings", "Listings extracted"], ["vinOk", "Valid VIN"],
+    ["excluded", "Filtered out", "out"], ["eligible", "Eligible"], ["enriched", "Enriched"], ["stored", "Stored (validated)", "good"], ["pending", "Pending review"],
+  ];
+  const funnelEl = document.getElementById("funnel");
+  funnelEl.innerHTML = FUNNEL.map(([k, label, cls]) => `<div class="fstep ${cls || ""}"><div class="v" id="f-${k}">0</div><div class="k">${label}</div></div>`).join("");
+
+  const layersEl = document.getElementById("layers");
+  layersEl.innerHTML = LAYERS.map(l => `<div class="layer" id="ly-${l.id}"><span class="id">${l.id}</span><div><b>${l.name}</b><small>${l.mods}</small></div></div>`).join("") +
+    `<div class="layer cross"><span class="id">×</span><div><b>Cross-cutting</b><small>config/ · observability/ (one span per agent node)</small></div></div>`;
+
+  const logEl = document.getElementById("log");
+  const filterEl = document.getElementById("logFilter");
+  ["supervisor", "registry", "collector", "extractor", "validator", "enricher", "recorder", "comparator", "notifier"].forEach(a => {
+    const o = document.createElement("option"); o.value = a; o.textContent = a[0].toUpperCase() + a.slice(1); filterEl.appendChild(o);
+  });
+
+  let S;
+  function freshState() {
+    return {
+      active: {}, done: {}, funnel: Object.fromEntries(FUNNEL.map(f => [f[0], 0])), spend: 0, excluded: 0,
+      lanes: Object.fromEntries(DEALERS.map(d => [d.id, { cells: {}, state: "queued", status: "", reason: "", note: "", started: 0, ended: 0 }])),
+      dealersDone: 0, published: false, log: [],
+    };
+  }
+  const dealerById = Object.fromEntries(DEALERS.map(d => [d.id, d]));
+
+  function apply(e, live) {
+    if (e.kind === "handoff") { if (live) spawnPacket(e); return; }
+    const L = e.dealer ? S.lanes[e.dealer] : null;
+    if (e.kind === "start") {
+      S.active[e.node] = (S.active[e.node] || 0) + 1;
+      if (L) {
+        L.cells[e.node] = "active";
+        if (e.node === "collector") { L.state = "running"; L.started = e.seq; S.funnel.dealers++; bump("dealers"); }
+      }
+    }
+    if (e.kind === "end" || (e.kind === "error" && e.node === "collector" && e.status)) {
+      S.active[e.node] = Math.max(0, (S.active[e.node] || 0) - 1);
+      S.done[e.node] = (S.done[e.node] || 0) + 1;
+      if (L) L.cells[e.node] = e.kind === "error" ? "err" : "done";
+    }
+    if (e.kind === "error") flash(e.node);
+    if (e.kind === "error" && L && !e.status) L.note = e.reason;
+    if (e.pages) add("pages", e.pages);
+    if (e.listings) add("listings", e.listings);
+    if (e.vinOk) add("vinOk", e.vinOk);
+    if (e.excluded) { add("excluded", e.excluded); S.excluded += e.excluded; nodeEls.excluded.c.textContent = `${S.excluded} rows · reason + quote`; }
+    if (e.eligible) add("eligible", e.eligible);
+    if (e.enriched) add("enriched", e.enriched);
+    if (e.stored) add("stored", e.stored);
+    if (e.pending) add("pending", e.pending);
+    if (e.spend) S.spend += e.spend;
+    if (L && e.node === "validate" && e.kind === "end" && e.eligible === 0) L.cells.enricher = "skip";
+    if (L && e.status && e.node === "collector") { for (const k of ["extractor", "validate", "enricher", "gate"]) L.cells[k] = "skip"; }
+    if (L && e.final) {
+      L.state = "done"; L.status = e.final[0]; L.reason = e.final[1]; L.ended = e.seq; S.dealersDone++;
+      L.note = e.eligibleFinal != null ? `${e.eligibleFinal} eligible` : "";
+      L.cars = e.eligibleFinal;
+    }
+    if (e.publish) S.published = true;
+    S.log.push(e);
+    if (S.log.length > 400) S.log.shift();
+  }
+  function add(k, v) { S.funnel[k] += v; bump(k); }
+  const bumped = new Set();
+  function bump(k) { bumped.add(k); }
+  function flash(node) {
+    const g = nodeEls[node] && nodeEls[node].g; if (!g) return;
+    g.classList.add("flash"); setTimeout(() => g.classList.remove("flash"), 700);
+  }
+
+  const fmt = s => { s = Math.max(0, Math.floor(s)); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); };
+  const chip = (status, reason) => {
+    const cls = "c-" + status.toLowerCase();
+    return `<span class="chip ${cls}">${status}</span>`;
+  };
+
+  function render() {
+    for (const id in nodeEls) {
+      if (id === "excluded") continue;
+      const a = S.active[id] || 0, d = S.done[id] || 0;
+      nodeEls[id].g.classList.toggle("active", a > 0);
+      const perDealer = LANE_NODES.includes(id);
+      nodeEls[id].c.textContent = a > 0 ? (perDealer ? `${a} running · ${d} done` : "working") : d > 0 ? (perDealer ? `${d} done` : "done") : "idle";
+    }
+    for (const [k] of FUNNEL) {
+      const v = document.getElementById("f-" + k);
+      v.textContent = S.funnel[k];
+      if (bumped.has(k) && !reduceMotion) { v.classList.remove("bump"); void v.offsetWidth; v.classList.add("bump"); }
+    }
+    bumped.clear();
+    document.getElementById("elapsed").textContent = fmt(simT);
+    document.getElementById("elapsedBar").style.width = Math.min(100, simT / 3600 * 100) + "%";
+    document.getElementById("spend").textContent = "$" + S.spend.toFixed(3);
+    document.getElementById("spendBar").style.width = Math.min(100, S.spend / 0.15 * 100) + "%";
+    document.getElementById("dealersDone").textContent = `${S.dealersDone} / ${DEALERS.length}`;
+    const rs = document.getElementById("runStatus");
+    if (S.published) { rs.className = "chip c-published"; rs.textContent = "PUBLISHED"; }
+    else { rs.className = "chip c-running"; rs.innerHTML = '<span class="pulse-dot"></span>RUNNING'; }
+
+    const activeAgents = new Set();
+    for (const id in S.active) if (S.active[id] > 0) activeAgents.add(N[id].agent);
+    LAYERS.forEach(l => {
+      const hot = l.agents.includes("*") ? activeAgents.size > 0 : l.agents.some(a => activeAgents.has(a));
+      document.getElementById("ly-" + l.id).classList.toggle("hot", hot);
+    });
+
+    renderLanes();
+    renderLog();
+    renderShell();
+  }
+
+  const lanesEl = document.getElementById("lanes");
+  function renderLanes() {
+    const rank = L => L.state === "running" ? 0 : L.state === "queued" ? 1 : 2;
+    const ids = DEALERS.map(d => d.id).sort((a, b) => {
+      const A = S.lanes[a], B = S.lanes[b];
+      return rank(A) - rank(B) || (rank(A) === 2 ? B.ended - A.ended : A.started - B.started) || 0;
+    });
+    lanesEl.innerHTML = `<div class="lane-head"><span>Dealer</span>${LANE_LABELS.map(l => `<span class="st">${l}</span>`).join("")}<span>Status</span></div>` +
+      ids.map(id => {
+        const d = dealerById[id], L = S.lanes[id];
+        const cells = LANE_NODES.map(n => `<span class="cell ${L.cells[n] || ""}" title="${N[n].name}: ${N[n].stage}"></span>`).join("");
+        let res;
+        if (L.state === "done") res = `${chip(L.status)}<small>${L.reason || L.note}</small>`;
+        else if (L.state === "running") res = `<span class="chip c-running"><span class="pulse-dot"></span>running</span><small>${L.note || ""}</small>`;
+        else res = `<span class="chip c-queued">queued</span>`;
+        return `<div class="lane ${L.state}"><div class="who"><b>${d.name}</b><span>${d.city} · ${d.platform}</span></div>${cells}<div class="res">${res}</div></div>`;
+      }).join("");
+  }
+
+  function renderLog() {
+    const f = filterEl.value;
+    const rows = [];
+    for (let i = S.log.length - 1; i >= 0 && rows.length < 60; i--) {
+      const e = S.log[i];
+      if (f && e.agent !== f) continue;
+      const d = e.dealer ? `<em>${dealerById[e.dealer].name} · </em>` : "";
+      rows.push(`<li class="${e.kind === "error" ? "error" : ""}"><span class="seq">#${e.seq}</span><span class="t">${fmt(e.t)}</span><span class="ag" style="color:${AGENT_COLORS[e.agent]}">${e.agent}</span><span class="msg">${d}${e.msg}</span></li>`);
+    }
+    logEl.innerHTML = rows.join("") || `<li><span></span><span></span><span></span><span class="msg"><em>No events for this agent yet.</em></span></li>`;
+  }
+  filterEl.addEventListener("change", renderLog);
+
+  // ---------- clock ----------
+  const SCRIPT = buildScript();
+  const END_T = SCRIPT[SCRIPT.length - 1].t;
+  let simT = 0, idx = 0, speed = 32, playing = true, last = 0, dirty = true, lastRender = 0;
+
+  function reset(startAt) {
+    S = freshState(); idx = 0; simT = 0;
+    packets.forEach(p => p.g.remove()); packets = [];
+    advanceTo(startAt, false);
+    dirty = true;
+  }
+  function advanceTo(t, live) {
+    simT = Math.min(t, END_T);
+    while (idx < SCRIPT.length && SCRIPT[idx].t <= simT) { apply(SCRIPT[idx], live); idx++; dirty = true; }
+  }
+  function frame(now) {
+    const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
+    last = now;
+    if (playing && simT < END_T) advanceTo(simT + dt * speed, true);
+    if (simT >= END_T && playing) { playing = false; document.getElementById("playBtn").textContent = "Play"; }
+    stepPackets(now);
+    if (dirty && now - lastRender > 120) { render(); dirty = false; lastRender = now; }
+    else if (now - lastRender > 1000) { render(); lastRender = now; }
+    requestAnimationFrame(frame);
+  }
+
+  document.querySelectorAll("[data-speed]").forEach(b => b.addEventListener("click", () => {
+    speed = +b.dataset.speed;
+    document.querySelectorAll("[data-speed]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  }));
+  document.getElementById("playBtn").addEventListener("click", e => {
+    if (simT >= END_T) { reset(0); playing = true; }
+    else playing = !playing;
+    e.currentTarget.textContent = playing ? "Pause" : "Play";
+  });
+  document.getElementById("restartBtn").addEventListener("click", () => {
+    reset(0); playing = true; document.getElementById("playBtn").textContent = "Pause";
+  });
+
+  // ---------- app shell ----------
+  const PAGES = [
+    { grp: "Shop", id: "find", label: "Find a car", route: "/", icon: "i-car", kind: "existing", aud: "Buyer", syn: "home buy wish list budget lowest highest compare",
+      purpose: "The buyer's home: which cars fit the wish list, where prices sit, and what changed. Built from buyer-ui-spec.md, now inside the shell.",
+      items: ["Wish list column: budget, location and radius, Must / Nice / Skip packages, colors", "Answer strip with four numbers", "Lowest and highest priced cars", "Where prices sit today (dot strip)", "Cars for you, ranked, with compare tray", "Price changes and Dealers we checked"],
+      change: "Extends base.html. Its own header, theme toggle and the Today's check switcher are removed. The app menu starts collapsed below 1440px because this page has its own wish-list column." },
+    { grp: "Shop", id: "shortlist", label: "Shortlist", route: "/shortlist", icon: "i-star", kind: "existing", aud: "Buyer", syn: "preferences ranking fit confidence",
+      purpose: "In-scope cars ranked by preference fit, with evidence confidence as a separate score.",
+      items: ["Ranked rows: VIN, dealer, price or why it is missing", "Feature match and unknowns", "Side-by-side compare, up to 4"], change: "Moves into the shell. Export links in the top bar." },
+    { grp: "Market", id: "inventory", label: "Eligible cars", route: "/inventory", icon: "i-list", kind: "existing", aud: "Buyer", syn: "inventory eligible vin list filter",
+      purpose: "Every eligible VIN in the published run, with facet filters and sort.",
+      items: ["Filters: dealer, colour, DAP, M Sport, on the way, price shown", "Sort by price, fit, dealer, MSRP", "Dealer names link to the dealer page"], change: "Moves into the shell. Run picker and exports in the top bar." },
+    { grp: "Market", id: "catalog", label: "All inventory", route: "/catalog", icon: "i-grid", kind: "existing", aud: "Buyer", syn: "catalog every listing features",
+      purpose: "Every X5 listing seen, including the ones that are not in scope, with package counts.",
+      items: ["All listings with feature columns", "Cars that moved between dealers", "Package YES / NO counts"], change: "Moves into the shell." },
+    { grp: "Market", id: "dealers", label: "Dealers", route: "/dealers", icon: "i-store", kind: "new", aud: "Buyer, with technical details for the operator", syn: "dealer store city houston dallas austin",
+      purpose: "Every Texas registry dealer in one table, and a detail page per dealer.",
+      items: ["Name, city, cars in the latest run, lowest price, last successful read", "Last result in buyer words", "Dealer page: its cars, 30-day result strip, floor and stock over time", "Technical details (closed): platform, start URL, robots, fetch attempts, link to its Pipeline lane"],
+      change: "New page from existing tables. The table on the right is live from the simulated run." },
+    { grp: "Market", id: "trends", label: "Price & stock trends", route: "/trends", icon: "i-trend", kind: "existing", aud: "Buyer", syn: "floor stock chart history",
+      purpose: "Floor price and stock per dealer over time. A day a dealer was not read is a gap, not a zero.",
+      items: ["Floor by dealer, with floor-VIN turnover marked", "Stock by dealer", "Statewide total counts only dealers read that day"], change: "Moves into the shell. Charts take token colors and re-render on theme change." },
+    { grp: "Pipeline", id: "pipeline", label: "Live pipeline", route: "/pipeline", icon: "i-activity", kind: "new", aud: "Operator", syn: "agents langgraph animation live run graph",
+      purpose: "Watch the nine agents work, live or as a replay.", items: [], change: "" },
+    { grp: "Pipeline", id: "check", label: "Today's check", route: "/check", icon: "i-check", kind: "route", aud: "Operator", syn: "today daily check operator overview",
+      purpose: "The daily pass at a glance: dealers read, cars kept, what to look at.",
+      items: ["Content of today's /?view=check, unchanged", "Dealer rows link to dealer pages"], change: "New route. /?view=check and /operator redirect here (301). overview.html is deleted." },
+    { grp: "Pipeline", id: "health", label: "Data health & coverage", route: "/health", icon: "i-health", kind: "existing", aud: "Operator", syn: "coverage health failures fetch attempts",
+      purpose: "Which dealers were read, which failed and why, over 30 days.",
+      items: ["Registry coverage against every active Texas dealer", "30-day status grid", "Exclusions by code", "Every fetch attempt"], change: "Moves into the shell. Status cells link to that dealer's lane on the Pipeline page." },
+    { grp: "Pipeline", id: "runs", label: "Runs & digest", route: "/runs", icon: "i-runs", kind: "existing", aud: "Operator", syn: "digest email history runs",
+      purpose: "Run history, notification log and the digest text.",
+      items: ["Run list with status and trigger", "Digest text and delivery log", "Replay link per run to the Pipeline page"], change: "Moves into the shell. Adds the Replay link." },
+    { grp: "Pipeline", id: "review", label: "Review queue", route: "/review", icon: "i-inbox", kind: "existing", aud: "Operator", syn: "pending review validate reject",
+      purpose: "Items held for a person: layout changes, odd prices, conflicts. Never blocks the digest.",
+      items: ["Pending items with validate / reject", "Full audit trail"], change: "Moves into the shell. Still the only write action in the app." },
+    { grp: "System", id: "architecture", label: "How it works", route: "/architecture", icon: "i-layers", kind: "new", aud: "Buyer and operator", syn: "architecture layers agents how it works",
+      purpose: "The system explained, generated from code so it cannot drift.",
+      items: ["The agent graph, static, each node linking to its card", "One card per agent: mode, tools, owned fields, Watch it run", "The seven layers with allowed dependencies", "Rules that never bend, each linked to its requirement"], change: "New page fed by /api/architecture." },
+  ];
+  const PG = Object.fromEntries(PAGES.map(p => [p.id, p]));
+  const KIND = { existing: ["Existing page", "c-queued"], new: ["New page", "c-new"], route: ["New route", "c-new"] };
+  const BUYER_WORDS = { REPORTED: "Checked", PARTIAL: "Partly checked", NOT_REPORTED: "Couldn't read the website", NO_SOURCE: "Website not on file yet" };
+
+  const app = document.getElementById("app");
+  const menuEl = document.getElementById("menu");
+  let current = "pipeline";
+  {
+    let html = "", grp = "";
+    for (const p of PAGES) {
+      if (p.grp !== grp) { grp = p.grp; html += `<div class="grp">${grp}</div>`; }
+      html += `<a href="#${p.id}" data-nav="${p.id}" title="${p.label}"><svg class="i"><use href="#${p.icon}"/></svg><span class="lbl">${p.label}</span><span id="badge-${p.id}"></span></a>`;
+    }
+    menuEl.innerHTML = html;
+  }
+  document.querySelectorAll("[data-nav]").forEach(a => a.addEventListener("click", ev => { ev.preventDefault(); go(a.dataset.nav); }));
+
+  function go(id, opts) {
+    if (!PG[id]) id = "pipeline";
+    current = id;
+    const p = PG[id];
+    menuEl.querySelectorAll("a").forEach(a => { if (a.dataset.nav === id) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+    document.getElementById("pageTitle").textContent = p.label;
+    document.getElementById("crumbGroup").textContent = `${p.grp} · ${p.route}`;
+    document.getElementById("view-pipeline").hidden = id !== "pipeline";
+    const pv = document.getElementById("view-page");
+    pv.hidden = id === "pipeline";
+    if (id !== "pipeline") renderOutline(p, opts && opts.dealer);
+    closeDrawer();
+    try { if (location.hash !== "#" + id) history.replaceState(null, "", "#" + id); } catch (e) {}
+    window.scrollTo(0, 0);
+  }
+
+  function renderOutline(p, highlight) {
+    const [kTxt, kCls] = KIND[p.kind];
+    const side = p.id === "dealers"
+      ? `<section class="panel"><div class="panel-head"><h2>Dealers · live from the simulated run</h2><span class="hint" id="dealerSum"></span></div><div class="tbl-scroll"><table class="dtable"><thead><tr><th>Dealer</th><th>City</th><th>Cars</th><th>Last result</th></tr></thead><tbody id="dealerRows"></tbody></table></div></section>`
+      : `<section class="panel"><h2>How it fits</h2><ul style="margin-top:10px">
+          <li><b>Audience:</b> ${p.aud}</li>
+          <li><b>Words:</b> ${p.grp === "Shop" || p.grp === "Market" ? "buyer vocabulary, codes only inside Technical details" : "operator page, status and reason codes shown"}</li>
+          <li><b>Change:</b> ${p.change}</li></ul></section>`;
+    document.getElementById("view-page").innerHTML = `<div class="outline">
+      <section class="panel">
+        <div class="meta"><span class="chip ${kCls}">${kTxt}</span><code>GET ${p.route}</code><span class="hint">requirements-web-ui.md §8</span></div>
+        <h2 class="t">${p.label}</h2><p>${p.purpose}</p>
+        <h2 style="margin:14px 0 8px">On this page</h2><ul>${p.items.map(i => `<li>${i}</li>`).join("")}</ul>
+        <p style="margin-top:14px">This prototype shows the page outline only. The Live pipeline page is fully working: <a href="#pipeline" data-go="pipeline" style="color:var(--accent);font-weight:600">open it</a>.</p>
+      </section>${side}</div>`;
+    document.querySelector("[data-go]").addEventListener("click", ev => { ev.preventDefault(); go("pipeline"); });
+    if (p.id === "dealers") renderDealerRows(highlight);
+  }
+  let dealerHighlight = null;
+  function renderDealerRows(highlight) {
+    if (highlight !== undefined) dealerHighlight = highlight;
+    const body = document.getElementById("dealerRows"); if (!body) return;
+    let checked = 0;
+    body.innerHTML = DEALERS.map(d => {
+      const L = S.lanes[d.id];
+      let res = L.state === "running" ? "Being checked now" : L.state === "queued" ? "Waiting for today's pass" : BUYER_WORDS[L.status];
+      if (L.state === "done" && L.status === "REPORTED") checked++;
+      const cars = L.state === "done" && L.cars != null ? L.cars : "—";
+      const hl = dealerHighlight === d.id ? ' style="background:var(--accent-soft)"' : "";
+      return `<tr${hl}><td>${d.name}</td><td>${d.city}</td><td class="num">${cars}</td><td>${res}</td></tr>`;
+    }).join("");
+    const sum = document.getElementById("dealerSum"); if (sum) sum.textContent = `${checked} of ${DEALERS.length} Texas dealers checked`;
+  }
+
+  function renderShell() {
+    const running = !S.published;
+    const notRead = DEALERS.filter(d => S.lanes[d.id].state === "done" && S.lanes[d.id].status !== "REPORTED").length;
+    document.getElementById("badge-pipeline").innerHTML = running ? '<span class="live"><span class="pulse-dot"></span><span class="txt">LIVE</span></span>' : "";
+    document.getElementById("badge-review").innerHTML = S.funnel.pending ? `<span class="count warn" aria-label="${S.funnel.pending} pending review">${S.funnel.pending}</span>` : "";
+    document.getElementById("badge-health").innerHTML = notRead ? `<span class="count bad" aria-label="${notRead} dealers not fully read">${notRead}</span>` : "";
+    const reported = DEALERS.filter(d => S.lanes[d.id].status === "REPORTED").length;
+    const noSource = DEALERS.filter(d => S.lanes[d.id].status === "NO_SOURCE").length;
+    document.getElementById("runcard").innerHTML = running
+      ? `<div class="row"><span class="chip c-running"><span class="pulse-dot"></span><span class="detail">RUNNING</span></span><span class="detail muted num">${fmt(simT)}</span></div>
+         <div class="detail muted">Oct 20 · cron · ${S.dealersDone}/${DEALERS.length} dealers done</div>
+         <div class="detail"><a href="#pipeline" id="watchLive">Watch live →</a></div>`
+      : `<div class="row"><span class="chip c-published"><span class="detail">PUBLISHED</span></span><span class="detail muted">as of just now</span></div>
+         <div class="detail muted">${reported} / ${DEALERS.length} dealers read · ${noSource} no source</div>
+         <div class="detail muted">Model: on · $${S.spend.toFixed(3)} spent</div>`;
+    const w = document.getElementById("watchLive"); if (w) w.onclick = ev => { ev.preventDefault(); go("pipeline"); };
+    if (current === "dealers") renderDealerRows();
+  }
+
+  // sidebar states
+  const mqDrawer = window.matchMedia("(max-width: 1023px)");
+  function savedSidebar() { try { return localStorage.getItem("x5finder.sidebar"); } catch (e) { return null; } }
+  function applySidebar() {
+    const saved = savedSidebar();
+    const collapsed = saved ? saved === "collapsed" : window.innerWidth < 1280;
+    app.classList.toggle("collapsed", collapsed && !mqDrawer.matches);
+  }
+  document.getElementById("collapseBtn").addEventListener("click", () => {
+    const next = !app.classList.contains("collapsed");
+    app.classList.toggle("collapsed", next);
+    try { localStorage.setItem("x5finder.sidebar", next ? "collapsed" : "expanded"); } catch (e) {}
+  });
+  window.addEventListener("resize", applySidebar);
+  const menuBtn = document.getElementById("menuBtn");
+  function closeDrawer() { app.classList.remove("drawer"); menuBtn.setAttribute("aria-expanded", "false"); }
+  menuBtn.addEventListener("click", () => { const open = !app.classList.contains("drawer"); app.classList.toggle("drawer", open); menuBtn.setAttribute("aria-expanded", String(open)); });
+  document.getElementById("scrim").addEventListener("click", closeDrawer);
+
+  // theme
+  const root = document.documentElement;
+  const themeIcon = document.getElementById("themeIcon");
+  const themeBtn = document.getElementById("themeToggle");
+  const darkNow = () => root.getAttribute("data-theme") === "dark" || (!root.hasAttribute("data-theme") && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  function paintTheme() {
+    const dark = darkNow();
+    themeIcon.setAttribute("href", dark ? "#i-sun" : "#i-moon");
+    themeBtn.setAttribute("aria-label", dark ? "Switch to light mode" : "Switch to dark mode");
+  }
+  themeBtn.addEventListener("click", () => {
+    const next = darkNow() ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("x5finder.theme", next); } catch (e) {}
+    paintTheme();
+  });
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", paintTheme);
+
+  // search palette
+  const pal = document.getElementById("palette"), palInput = document.getElementById("palInput"), palRes = document.getElementById("palRes");
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  document.getElementById("kbdHint").textContent = isMac ? "⌘K" : "Ctrl K";
+  let palItems = [], palSel = 0, lastFocus = null;
+  function openPalette() { lastFocus = document.activeElement; pal.hidden = false; palInput.value = ""; searchPal(""); palInput.focus(); }
+  function closePalette() { pal.hidden = true; if (lastFocus && lastFocus.focus) lastFocus.focus(); }
+  function searchPal(q) {
+    q = q.trim().toLowerCase();
+    const groups = [];
+    const pages = PAGES.filter(p => !q || (p.label + " " + p.syn + " " + p.route).toLowerCase().includes(q)).slice(0, 6)
+      .map(p => ({ label: p.label, sub: p.route, icon: p.icon, act: () => go(p.id) }));
+    if (pages.length) groups.push(["Pages", pages]);
+    if (q.length >= 2) {
+      const dl = DEALERS.filter(d => (d.name + " " + d.city).toLowerCase().includes(q)).slice(0, 6)
+        .map(d => ({ label: d.name, sub: d.city, icon: "i-store", act: () => go("dealers", { dealer: d.id }) }));
+      if (dl.length) groups.push(["Dealers", dl]);
+      if ("2026-10-20 oct 20 r-20261020-0600-cron".includes(q)) groups.push(["Runs", [{ label: "2026-10-20 · cron", sub: "Replay on Live pipeline", icon: "i-runs", act: () => go("pipeline") }]]);
+      if (/^[a-hj-npr-z0-9]{6,17}$/i.test(q) && /\d/.test(q)) groups.push(["Cars", [{ label: "Cars by VIN or stock number", sub: "Shown here in the app", icon: "i-car", act: () => go("inventory") }]]);
+    }
+    palItems = groups.flatMap(g => g[1]); palSel = 0;
+    let i = 0;
+    palRes.innerHTML = groups.length ? groups.map(([g, items]) => `<div class="gh">${g}</div>` + items.map(it => `<div class="it" role="option" data-i="${i}" aria-selected="${i++ === 0}"><svg class="i"><use href="#${it.icon}"/></svg><span>${it.label}</span><small>${it.sub}</small></div>`).join("")).join("")
+      : `<div class="empty">No matches. Try a dealer, a city, a date like 2026-10-20, or a page name.</div>`;
+    palRes.querySelectorAll(".it").forEach(el2 => el2.addEventListener("click", () => pick(+el2.dataset.i)));
+  }
+  function pick(i) { const it = palItems[i]; closePalette(); if (it) it.act(); }
+  function moveSel(d) {
+    if (!palItems.length) return;
+    palSel = (palSel + d + palItems.length) % palItems.length;
+    palRes.querySelectorAll(".it").forEach(x => x.setAttribute("aria-selected", String(+x.dataset.i === palSel)));
+    const s = palRes.querySelector(`[data-i="${palSel}"]`); if (s) s.scrollIntoView({ block: "nearest" });
+  }
+  palInput.addEventListener("input", () => searchPal(palInput.value));
+  palInput.addEventListener("keydown", e => {
+    if (e.key === "ArrowDown") { e.preventDefault(); moveSel(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); moveSel(-1); }
+    else if (e.key === "Enter") { e.preventDefault(); pick(palSel); }
+  });
+  pal.addEventListener("click", e => { if (e.target === pal) closePalette(); });
+  document.getElementById("searchBtn").addEventListener("click", openPalette);
+  document.addEventListener("keydown", e => {
+    const typing = /INPUT|TEXTAREA|SELECT/.test((e.target && e.target.tagName) || "");
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); pal.hidden ? openPalette() : closePalette(); }
+    else if (e.key === "/" && !typing && pal.hidden) { e.preventDefault(); openPalette(); }
+    else if (e.key === "Escape") { if (!pal.hidden) closePalette(); else closeDrawer(); }
+  });
+
+  applySidebar();
+  paintTheme();
+
+  // Open mid-run so the first frame shows branches in flight.
+  reset(150);
+  go((location.hash || "").slice(1) || "pipeline");
+  render();
+  requestAnimationFrame(frame);
+})();
+</script>
