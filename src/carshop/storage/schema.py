@@ -18,6 +18,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    text,
 )
 
 naming = {
@@ -384,4 +385,73 @@ robots_snapshots = Table(
     Column("sha256", String),
     Column("decision", String, nullable=False),
     Column("fetched_at", String, nullable=False),
+)
+
+# ---------------------------------------------------------------- the owner's lists
+# requirements-shortlist.md §8. Personal lists, not audit evidence: soft delete, no audit_events.
+
+saved_cars = Table(
+    "saved_cars",
+    metadata,
+    Column("saved_car_id", Integer, primary_key=True, autoincrement=True),
+    Column("vin", String, ForeignKey("units.vin"), nullable=False),
+    Column("saved_at", String, nullable=False),
+    Column("updated_at", String, nullable=False),
+    Column("note", Text),
+    Column("snapshot_json", Text, nullable=False),
+    Column(
+        "snapshot_observation_id",
+        Integer,
+        ForeignKey("observations.observation_id"),
+        nullable=False,
+    ),
+    Column("removed_at", String),
+    Index("ix_saved_cars_vin", "vin"),
+    Index("ux_saved_cars_active_vin", "vin", unique=True, sqlite_where=text("removed_at IS NULL")),
+)
+
+saved_searches = Table(
+    "saved_searches",
+    metadata,
+    Column("search_id", Integer, primary_key=True, autoincrement=True),
+    Column("name", String, nullable=False),
+    Column("base_vin", String),
+    Column("criteria_json", Text, nullable=False),
+    Column("criteria_version", Integer, nullable=False, default=1),
+    Column("created_at", String, nullable=False),
+    Column("updated_at", String, nullable=False),
+    Column("paused", Boolean, nullable=False, default=False),
+    Column("alerts", Boolean, nullable=False, default=True),
+    Column("removed_at", String),
+    Column("baseline_at", String),
+)
+
+search_matches = Table(
+    "search_matches",
+    metadata,
+    Column("search_match_id", Integer, primary_key=True, autoincrement=True),
+    Column("search_id", Integer, ForeignKey("saved_searches.search_id"), nullable=False),
+    Column("run_id", String, ForeignKey("runs.run_id"), nullable=False),
+    Column("vin", String, nullable=False),
+    Column("dealer_id", String, ForeignKey("dealers.dealer_id"), nullable=False),
+    Column("observation_id", Integer, ForeignKey("observations.observation_id"), nullable=False),
+    Column("tier", String, nullable=False),
+    Column("score", Integer, nullable=False),
+    Column("reasons_json", Text, nullable=False, default="[]"),
+    Column("is_new", Boolean, nullable=False, default=False),
+    Column("became_full_match", Boolean, nullable=False, default=False),
+    Column("evaluated_at", String, nullable=False),
+    Column("baseline", Boolean, nullable=False, default=False),
+    UniqueConstraint("search_id", "run_id", "vin", name="uq_search_matches_search_run_vin"),
+    Index("ix_search_matches_search_vin", "search_id", "vin"),
+    Index("ix_search_matches_run", "run_id"),
+)
+
+color_families = Table(
+    "color_families",
+    metadata,
+    Column("kind", String, primary_key=True),
+    Column("code_or_raw", String, primary_key=True),
+    Column("family", String, nullable=False),
+    Column("reference_version", String, nullable=False),
 )

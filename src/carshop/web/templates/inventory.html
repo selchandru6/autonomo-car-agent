@@ -49,7 +49,7 @@
       <thead class="sticky-head text-left text-[11px] uppercase tracking-wider muted">
         <tr><th>VIN</th><th>Dealer</th><th class="text-right">Cash price</th><th class="text-right">MSRP</th><th>Exterior</th><th>Interior</th><th>DAP</th><th>Pkg</th><th>Status</th><th>Fit</th><th>Confidence</th><th>Seen</th></tr>
       </thead>
-      <tbody>{% for u in units %}{{ unit_row(u, show_fit=True) }}{% endfor %}</tbody>
+      <tbody>{% for u in units %}{{ unit_row(u, show_fit=True, saved_vins=saved_vins) }}{% endfor %}</tbody>
     </table>
   </div>
   {% else %}

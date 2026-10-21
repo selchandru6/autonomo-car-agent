@@ -224,7 +224,7 @@ function card(x, i, group) {
     '<div class="colors"><span><i class="sw" style="background:' + (SW[c.ext] || "var(--sunk)") + '"></i>' + esc(c.ext) + '</span><span><i class="sw" style="background:' + (SW[c.int] || "var(--sunk)") + '"></i>' + esc(c.int + (c.intMat ? " " + c.intMat : "") + " interior") + '</span></div>' +
     '<div class="feats">' + (featTags(c) || '<span class="note">No packages listed by the dealer</span>') + '</div>' +
     '<div class="car-foot"><span class="seen">' + (c.inTransit ? "On the way to the dealer" : "On the lot") + ' · first seen ' + esc(fmtDay(c.firstSeen)) + '</span>' +
-    '<span style="display:flex;gap:12px;align-items:center"><a href="/vin/' + esc(c.vin) + '">Details</a><label class="cmp"><input type="checkbox" data-cmp="' + esc(c.vin) + '" ' + (inCmp ? "checked" : "") + ' ' + (!inCmp && compare.length >= 3 ? "disabled" : "") + '> Compare</label>' + link + '</span></div></article>';
+    '<span style="display:flex;gap:12px;align-items:center"><a href="/vin/' + esc(c.vin) + '">Details</a>' + (window.Shortlist ? window.Shortlist.button(c.vin) : "") + '<label class="cmp"><input type="checkbox" data-cmp="' + esc(c.vin) + '" ' + (inCmp ? "checked" : "") + ' ' + (!inCmp && compare.length >= 3 ? "disabled" : "") + '> Compare</label>' + link + '</span></div></article>';
 }
 function vsMsrp(p, m) {
   const d = Math.round((p - m) / 100);

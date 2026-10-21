@@ -1,23 +1,30 @@
-"""FastAPI screen. Read-only for a single operator in Phase 1 (requirements 2, 11).
+"""FastAPI screen for a single operator (requirements 2, 11).
 
-Reads committed rows only. Every number links to the observation rows behind it.
+Reads committed rows only. Every number links to the observation rows behind it. The only
+writes are the owner's saved cars (requirements-shortlist.md §9), behind `_write_guard`.
 """
 
 from __future__ import annotations
 
+import hmac
+import ipaddress
 import json
-from collections.abc import Iterator
+import secrets
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
+from pydantic import BaseModel
 from sqlalchemy import Connection, Engine, select
+from sqlalchemy.exc import OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from carshop import __version__
@@ -26,13 +33,34 @@ from carshop.config.loaders import load_preferences
 from carshop.config.settings import Settings, get_settings
 from carshop.domain.pricing import fmt_cents
 from carshop.export.export import export_run
+from carshop.shortlist import saved as sl
 from carshop.storage import migrate, repos
 from carshop.storage import schema as s
-from carshop.storage.db import make_engine, read_conn
+from carshop.storage.db import make_engine, read_conn, write_tx
 from carshop.util import git_sha
 from carshop.web import search, shell, views
 
 _HERE = Path(__file__).parent
+SHORTLIST_TABS = ("saved", "ranked")
+
+
+def is_loopback(host: str) -> bool:
+    if host.strip().lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
+class SaveCar(BaseModel):
+    vin: str
+    note: str | None = None
+
+
+class CarNote(BaseModel):
+    note: str | None = None
+
 
 # Menu pages whose full build lands in a later delivery step (requirements-web-ui.md §12).
 # They render inside the shell so no menu item is a dead link.
@@ -88,7 +116,13 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         .replace("\u2028", "\\u2028")
         .replace("\u2029", "\\u2029")
     )
-    templates.env.globals.update(version=__version__, git_sha=git_sha(), tz=st.schedule_tz)
+    # Saving is a write: only on a loopback bind, same origin, with this process's token (§9).
+    writes = is_loopback(st.web_host)
+    csrf = secrets.token_urlsafe(32)
+    templates.env.globals.update(
+        version=__version__, git_sha=git_sha(), tz=st.schedule_tz,
+        shortlist_writes=writes, csrf_token=csrf if writes else "",
+    )  # fmt: skip
 
     def render(name: str, ctx: dict[str, Any]) -> Response:
         return templates.TemplateResponse(ctx["request"], name, ctx)
@@ -124,8 +158,38 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         }
         return {
             "request": request, "run": run, "runs": runs, "coverage_summary": views.summarize_coverage(coverage),
-            "pending": status["pending"], "settings": st, "model_enabled": st.model_enabled, "shell": frame, **extra,
+            "pending": status["pending"], "settings": st, "model_enabled": st.model_enabled, "shell": frame,
+            "saved_vins": sl.saved_vins(c), **extra,
         }  # fmt: skip
+
+    def _write_guard(request: Request) -> None:
+        if not writes:
+            raise HTTPException(
+                403, "Saving works only when the app runs on this computer (localhost)."
+            )
+        origin = request.headers.get("origin")
+        site = request.headers.get("sec-fetch-site")
+        host = request.headers.get("host", "")
+        if origin is not None:
+            if urlsplit(origin).netloc != host:
+                raise HTTPException(403, "Cross-origin request refused.")
+        elif site is None or site != "same-origin":
+            raise HTTPException(403, "Cross-origin request refused.")
+        token = request.headers.get("x-csrf-token", "")
+        if not token or not hmac.compare_digest(token, csrf):
+            raise HTTPException(403, "Missing or wrong page token. Reload the page and try again.")
+
+    def _write(fn: Callable[[Connection], dict[str, Any]]) -> JSONResponse:
+        """One short transaction through the single-writer path."""
+        try:
+            with write_tx(eng) as c:
+                return JSONResponse(fn(c))
+        except sl.ShortlistError as e:
+            return JSONResponse({"error": e.message}, status_code=e.status)
+        except OperationalError as e:
+            if "locked" in str(e).lower() or "busy" in str(e).lower():
+                return JSONResponse({"error": sl.BUSY}, status_code=503)
+            raise
 
     # ------------------------------------------------------------------ pages
     @app.get("/", response_class=HTMLResponse)
@@ -248,6 +312,7 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                     feature_counts=counts,
                     q=q,
                     moved=moved,
+                    savable=sl.savable_vins(c, [str(u["vin"]) for u in filtered]),
                 ),
             )
 
@@ -280,15 +345,24 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
             ]
             return render(
                 "vin.html",
-                _ctx(request, c, run, vin=vin, history=history, latest=latest, features=feats.get(int(latest["observation_id"]), []),
+                _ctx(request, c, run, vin=vin, history=history, saved=sl.get_saved(c, vin),
+                     savable=sl.latest_validated(c, vin) is not None, latest=latest, features=feats.get(int(latest["observation_id"]), []),
                      prices=prices.get(int(latest["observation_id"]), []), lifecycle=lifecycle, price_events=pe,
                      series=[{"date": h["snapshot_date"], "dealer": h["dealer_name"], "price": (h["comparison_price_cents"] or 0) / 100 if h["comparison_price_cents"] else None, "msrp": (h["msrp_cents"] or 0) / 100 if h["msrp_cents"] else None} for h in history]),
             )  # fmt: skip
 
     @app.get("/shortlist", response_class=HTMLResponse)
-    def shortlist(request: Request, run_id: str | None = None) -> Response:
+    def shortlist(request: Request, run_id: str | None = None, tab: str | None = None) -> Response:
         with conn() as c:
+            tracked = sl.track_all(c)
+            if tab not in SHORTLIST_TABS:
+                tab = "saved" if tracked else "ranked"
             run = _latest(c, run_id)
+            if tab == "saved":
+                return render(
+                    "shortlist.html",
+                    _ctx(request, c, run, tab=tab, tracked=tracked, max_saved=sl.MAX_SAVED_CARS),
+                )
             if run is None:
                 return render("empty.html", _ctx(request, c, None, state="no_runs"))
             units = views.load_units(c, str(run["run_id"]), prefs)
@@ -314,6 +388,8 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
                     q=q,
                     compare=compare,
                     compare_vins=compare_vins,
+                    tab=tab,
+                    tracked=tracked,
                 ),
             )
 
@@ -476,6 +552,41 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
         with conn() as c:
             results = search.search(c, q, 50)
             return render("search.html", _ctx(request, c, None, q=q, results=results))
+
+    # ------------------------------------------------------------------ the owner's saved cars
+    @app.post("/api/shortlist/cars", dependencies=[Depends(_write_guard)])
+    def api_save_car(body: SaveCar) -> JSONResponse:
+        def go(c: Connection) -> dict[str, Any]:
+            row, created = sl.save_car(c, body.vin, note=body.note)
+            return {
+                "vin": row["vin"],
+                "saved": True,
+                "created": created,
+                "count": len(sl.saved_vins(c)),
+            }
+
+        return _write(go)
+
+    @app.patch("/api/shortlist/cars/{vin}", dependencies=[Depends(_write_guard)])
+    def api_note_car(vin: str, body: CarNote) -> JSONResponse:
+        def go(c: Connection) -> dict[str, Any]:
+            row = sl.set_note(c, vin, body.note)
+            return {"vin": row["vin"], "saved": True, "note": row["note"]}
+
+        return _write(go)
+
+    @app.delete("/api/shortlist/cars/{vin}", dependencies=[Depends(_write_guard)])
+    def api_remove_car(vin: str) -> JSONResponse:
+        def go(c: Connection) -> dict[str, Any]:
+            removed = sl.remove_car(c, vin)
+            return {
+                "vin": vin.strip().upper(),
+                "saved": False,
+                "removed": removed,
+                "count": len(sl.saved_vins(c)),
+            }
+
+        return _write(go)
 
     @app.get("/api/status")
     def api_status() -> JSONResponse:

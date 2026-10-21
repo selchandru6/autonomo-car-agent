@@ -31,7 +31,7 @@ GROUPS: tuple[str, ...] = ("Shop", "Market", "Pipeline", "System")
 
 MENU: tuple[Item, ...] = (
     Item("Shop", "Find a car", "/", "i-car", "buyer"),
-    Item("Shop", "Shortlist", "/shortlist", "i-star", "buyer", run_scoped=True, exports=True),
+    Item("Shop", "My shortlist", "/shortlist", "i-star", "buyer", run_scoped=True, exports=True),
     Item("Market", "Eligible cars", "/inventory", "i-list", "buyer", run_scoped=True, exports=True),
     Item("Market", "All inventory", "/catalog", "i-grid", "buyer", exports=True),
     Item("Market", "Dealers", "/dealers", "i-store", "buyer"),

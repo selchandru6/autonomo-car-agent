@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_macros.html" import save_button %}
 {% block heading %}All inventory · {{ units | length }} of {{ total }} vehicles{% endblock %}
 {% block content %}
 
@@ -72,6 +73,7 @@
         <tr class="border-t">
           <td class="font-mono text-xs">
             {% if u.listing_url %}<a class="link hover:underline" href="{{ u.listing_url }}" target="_blank" rel="noreferrer">{{ u.vin }}</a>{% else %}{{ u.vin }}{% endif %}
+            {{ save_button(u.vin, saved_vins, u.vin in savable) }}
             {% if u.prior_dealer %}<div class="text-[10px] warn">was {{ u.prior_dealer }}</div>{% endif %}
           </td>
           <td>{{ u.dealer_name }}{% if u.city %}<div class="text-[11px] muted">{{ u.city }}</div>{% endif %}</td>

@@ -231,4 +231,4 @@ def test_vin_breadcrumb_uses_the_page_the_user_came_from(client: TestClient) -> 
     plain = client.get(f"/vin/{vin.group(1)}").text
     assert '<small><a href="/inventory">Eligible cars</a> /' in plain
     came = client.get(f"/vin/{vin.group(1)}", headers={"referer": "http://x/shortlist"}).text
-    assert '<small><a href="/shortlist">Shortlist</a> /' in came
+    assert '<small><a href="/shortlist">My shortlist</a> /' in came

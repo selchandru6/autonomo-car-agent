@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_macros.html" import tri, status %}
+{% from "_macros.html" import tri, status, save_button %}
 {% block heading %}<span class="font-mono">{{ vin }}</span>{% endblock %}
 {% block content %}
 
@@ -11,6 +11,7 @@
         <div class="text-2xl font-semibold">New {{ latest.year }} BMW {{ latest.model }} {{ latest.trim }}</div>
         <div class="muted text-sm"><a class="link" href="/dealers/{{ latest.dealer_id }}">{{ latest.dealer_name }}</a> · stock {{ latest.stock or '—' }} · seen {{ history | length }} time(s)</div>
         <div class="mt-3 flex flex-wrap gap-2">
+          {{ save_button(vin, saved_vins, savable) }}
           {% if latest.m_sport %}<span class="chip c-info">M Sport (ZMP)</span>{% endif %}
           {% if latest.in_transit %}<span class="chip c-partial">In transit</span>{% endif %}
         </div>
@@ -32,6 +33,16 @@
       <a class="link hover:underline" href="{{ latest.source_url }}" target="_blank" rel="noopener">listing page ↗</a>
       {% if latest.sticker_url %}<a class="link hover:underline" href="{{ latest.sticker_url }}" target="_blank" rel="noopener">window sticker ↗</a>{% endif %}
     </div>
+    {% if shortlist_writes %}
+    <form class="mt-5 text-sm" data-note="{{ vin }}" id="noteForm"{% if not saved %} hidden{% endif %}>
+      <label class="text-[11px] uppercase tracking-wider muted" for="noteText">Your note</label>
+      <div class="mt-1 flex flex-wrap items-start gap-2">
+        <textarea id="noteText" name="note" maxlength="280" rows="2" class="flex-1 min-w-[16rem] panel p-2 text-sm" placeholder="Anything to remember about this car (up to 280 characters)">{{ saved.note if saved and saved.note else '' }}</textarea>
+        <button type="submit" class="chip c-info">Save note</button>
+      </div>
+      <div class="text-xs muted mt-1" data-note-status aria-live="polite"></div>
+    </form>
+    {% endif %}
   </div>
 
   <div class="panel p-5">
@@ -132,6 +143,10 @@
 {% endblock %}
 {% block scripts %}
 <script>
+document.addEventListener('shortlist-change', e => {
+  const f = document.getElementById('noteForm');
+  if (f && e.detail.vin === f.dataset.note) f.hidden = !e.detail.saved;
+});
 const series = {{ series | tojson_safe }};
 mkChart('hist', {
   tooltip: { trigger: 'axis', valueFormatter: usd }, legend: { top: 0 },

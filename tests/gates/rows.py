@@ -14,7 +14,11 @@ from sqlalchemy import Engine, Integer, select
 from carshop.storage import schema as s
 from carshop.storage.db import read_conn
 
-SKIP_TABLES = {"dealers", "registry_snapshots", "catalog_vehicles", "catalog_features"}
+SKIP_TABLES = {
+    "dealers", "registry_snapshots", "catalog_vehicles", "catalog_features",
+    # The owner's lists and reference data, not written by a run.
+    "saved_cars", "saved_searches", "search_matches", "color_families",
+}  # fmt: skip
 VOLATILE = {"duration_ms", "latency_ms", "git_sha", "first_seen", "last_seen", "event_at"}
 
 

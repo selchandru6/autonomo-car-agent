@@ -272,3 +272,18 @@ html.theme-switching body, html.theme-switching .panel, html.theme-switching .si
   .sidebar, html.sb-collapsed .menu a .lbl { transition: none; }
   html.theme-switching body, html.theme-switching .panel, html.theme-switching .sidebar, html.theme-switching .topbar, html.theme-switching .chip { transition: none; }
 }
+
+/* ☆ Save / ★ Saved (requirements-shortlist.md §4.1) */
+.save-btn { display: inline-flex; align-items: center; gap: .25rem; padding: .05rem .5rem; border-radius: 9999px; border: 1px solid var(--line-strong); background: transparent; color: var(--muted); font: 600 .72rem/1.5 var(--font-ui); white-space: nowrap; cursor: pointer; }
+.save-btn:hover { border-color: var(--gold); color: var(--gold); }
+.save-btn.on { border-color: var(--gold); color: var(--gold); background: var(--warn-soft); }
+.save-btn.confirm { border-color: var(--bad-fg); color: var(--bad-fg); background: var(--bad-bg); }
+.save-btn:disabled { opacity: .45; cursor: not-allowed; border-color: var(--line); color: var(--muted); background: transparent; }
+.save-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toast { position: fixed; bottom: 1.25rem; left: 50%; transform: translateX(-50%); z-index: 60; padding: .55rem 1rem; border-radius: .75rem; background: var(--surface); color: var(--ink); border: 1px solid var(--line-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, .18); font-size: .85rem; }
+.tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--line); margin-bottom: 1rem; }
+.tabs a { padding: .5rem .9rem; border-bottom: 2px solid transparent; color: var(--muted); font-weight: 600; font-size: .9rem; }
+.tabs a[aria-current="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tabs a .n { margin-left: .35rem; font-size: .72rem; color: var(--muted); }
+.delta-down { color: var(--good); }
+.delta-up { color: var(--bad-fg); }

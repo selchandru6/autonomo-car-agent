@@ -13,9 +13,17 @@
   </div>
 {%- endmacro %}
 
-{% macro unit_row(u, show_fit=False, show_dealer=True) -%}
+{# ☆ Save / ★ Saved (requirements-shortlist.md §4.1). Hidden when writes are off. #}
+{% macro save_button(vin, saved_vins, savable=True) -%}
+  {% if shortlist_writes %}{% set on = vin in saved_vins %}
+  <button type="button" class="save-btn{{ ' on' if on }}" data-save="{{ vin }}" aria-pressed="{{ 'true' if on else 'false' }}"
+    {% if not savable and not on %}disabled title="Not read in a daily check yet, so it can't be saved"{% endif %}>{{ '★ Saved' if on else '☆ Save' }}</button>
+  {% endif %}
+{%- endmacro %}
+
+{% macro unit_row(u, show_fit=False, show_dealer=True, saved_vins=()) -%}
   <tr class="row-link border-t cursor-pointer" onclick="window.location='/vin/{{ u.vin }}'">
-    <td class="font-mono text-xs"><a class="link" href="/vin/{{ u.vin }}">{{ u.vin }}</a>{% if not show_dealer and u.row.stock %}<div class="text-[11px] muted">#{{ u.row.stock }}</div>{% endif %}</td>
+    <td class="font-mono text-xs"><a class="link" href="/vin/{{ u.vin }}">{{ u.vin }}</a> {{ save_button(u.vin, saved_vins) }}{% if not show_dealer and u.row.stock %}<div class="text-[11px] muted">#{{ u.row.stock }}</div>{% endif %}</td>
     {% if show_dealer %}<td><div><a class="link" href="/dealers/{{ u.row.dealer_id }}" onclick="event.stopPropagation()">{{ u.row.dealer_name }}</a></div><div class="text-[11px] muted">{{ u.row.city }}{% if u.row.stock %} · #{{ u.row.stock }}{% endif %}</div></td>{% endif %}
     <td class="tabular-nums text-right font-semibold {{ 'good' if u.row.comparison_price_cents else 'muted' }}">{{ u.price_label }}</td>
     <td class="tabular-nums text-right muted">{{ u.row.msrp_cents | money }}</td>

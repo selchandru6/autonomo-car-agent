@@ -46,6 +46,30 @@ UPHOLSTERY: dict[str, str] = {
 GREY_EXTERIOR_CODES = frozenset({"C36", "C4P", "C4W", "C5A"})
 BLACK_INTERIOR_CODES = frozenset({"KPSW", "VASW"})
 
+# Color families for saved searches (requirements-shortlist.md §5.4). Keyed by code; a raw
+# string with no mapped code belongs to no family. The migration seeds `color_families` from this.
+COLOR_FAMILY_VERSION = "families-v1"
+EXTERIOR_FAMILIES: dict[str, str] = {
+    "C4W": "Grey", "C4P": "Grey", "C36": "Grey", "C5A": "Grey",
+    "300": "White", "A96": "White",
+    "416": "Black", "475": "Black",
+    "C3Z": "Blue", "C35": "Blue",
+    "C3D": "Green",
+}  # fmt: skip
+INTERIOR_FAMILIES: dict[str, str] = {
+    "KPA9": "Light", "VAEW": "Light",
+    "KPHF": "Brown", "KPRI": "Brown", "VAHF": "Brown", "VATQ": "Brown",
+    "KPSW": "Black", "VASW": "Black",
+}  # fmt: skip
+
+
+def exterior_family(code: str | None) -> str | None:
+    return EXTERIOR_FAMILIES.get(code) if code else None
+
+
+def interior_family(code: str | None) -> str | None:
+    return INTERIOR_FAMILIES.get(code) if code else None
+
 
 def _norm(s: str) -> str:
     return " ".join(s.lower().replace("gray", "grey").replace("metallic", "").split())

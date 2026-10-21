@@ -53,6 +53,7 @@ def leaks(html: str) -> set[str]:
 
 def buyer_pages(client: TestClient) -> list[str]:
     pages = [item.href for item in shell.MENU if item.group in BUYER_GROUPS]
+    pages += ["/shortlist?tab=saved", "/shortlist?tab=ranked"]
     dealers = client.get("/dealers").text
     pages += sorted(set(re.findall(r'href="(/dealers/[\w-]+)"', dealers)))
     inventory = client.get("/inventory").text

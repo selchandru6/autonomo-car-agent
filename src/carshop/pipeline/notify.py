@@ -81,6 +81,11 @@ def build_digest(conn: Connection, run_id: str) -> Digest:
                 f"  - {e['dealer_name']} {e['vin']}: {e['event']} {fmt_cents(e['before_cents'])} -> {fmt_cents(e['after_cents'])} ({e['delta_cents'] / 100:+,.0f})"
             )
         lines.append("")
+    from carshop.shortlist.saved import digest_lines
+
+    watched = digest_lines(conn, run_id)
+    if watched:
+        lines += ["Your saved cars", *watched, ""]
     lines.append(
         "Floor comparison price by dealer (cash advertised, excl. tax/title; MSRP never substituted):"
     )

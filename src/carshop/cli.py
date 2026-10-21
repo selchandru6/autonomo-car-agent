@@ -57,6 +57,72 @@ review_app = typer.Typer(
 )
 app.add_typer(review_app, name="review")
 
+shortlist_app = typer.Typer(
+    help="Your saved cars (requirements-shortlist.md §9: CLI parity).", no_args_is_help=True
+)
+app.add_typer(shortlist_app, name="shortlist")
+
+
+@shortlist_app.command("list")
+def shortlist_list() -> None:
+    """Saved cars with status, price now, and change since saved."""
+    from carshop.shortlist.saved import track_all
+
+    _, eng = _engine()
+    with read_conn(eng) as conn:
+        rows = track_all(conn)
+    if not rows:
+        rprint("No saved cars yet.")
+        return
+    table = Table(
+        "vin", "dealer", "status", "price now", "since saved", "lowest", "last read", "note"
+    )
+    for t in rows:
+        last = (
+            f"dealer not read on {t['not_read_on']}"
+            if t["not_read_on"]
+            else str(t["last_read"] or "—")
+        )
+        lowest = t["lowest_cents"]
+        table.add_row(
+            str(t["vin"]), str(t["dealer_name"]), str(t["status"]), str(t["price_now"] or "—"),
+            str(t["change"]["label"]), f"${lowest / 100:,.0f}" if lowest is not None else "—",
+            last, str(t["note"] or ""),
+        )  # fmt: skip
+    console.print(table)
+
+
+@shortlist_app.command("add")
+def shortlist_add(vin: str, note: str | None = typer.Option(None, "--note")) -> None:
+    """Save a car from its latest committed observation. Never fetches."""
+    from carshop.shortlist.saved import ShortlistError, save_car
+    from carshop.storage.db import write_tx
+
+    _, eng = _engine()
+    try:
+        with write_tx(eng) as conn:
+            row, created = save_car(conn, vin, note=note)
+    except ShortlistError as e:
+        rprint(f"[red]{e.message}[/red]")
+        raise typer.Exit(1) from e
+    rprint(f"[green]{'saved' if created else 'already saved'}[/green] {row['vin']}")
+
+
+@shortlist_app.command("remove")
+def shortlist_remove(vin: str) -> None:
+    """Remove a car from the shortlist (soft delete)."""
+    from carshop.shortlist.saved import ShortlistError, remove_car
+    from carshop.storage.db import write_tx
+
+    _, eng = _engine()
+    try:
+        with write_tx(eng) as conn:
+            removed = remove_car(conn, vin)
+    except ShortlistError as e:
+        rprint(f"[red]{e.message}[/red]")
+        raise typer.Exit(1) from e
+    rprint(f"[green]removed[/green] {vin.upper()}" if removed else f"{vin.upper()} was not saved")
+
 
 def _operator(explicit: str | None) -> str:
     import getpass
@@ -379,11 +445,17 @@ def import_workbooks_cmd(
 @app.command()
 def serve(host: str | None = None, port: int | None = None, reload: bool = False) -> None:
     """Start the web screen."""
+    import os
+
     import uvicorn
 
     st, eng = _engine()
     if not migrate.is_current(eng):
         migrate.upgrade(eng)
+    if host:
+        # The app turns saving off unless it is bound to loopback, so it must see the real bind.
+        os.environ["CARSHOP_WEB_HOST"] = host
+        st.web_host = host
     uvicorn.run(
         "carshop.web.app:create_app",
         factory=True,
