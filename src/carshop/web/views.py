@@ -163,7 +163,7 @@ def dealer_directory(conn: Connection) -> dict[str, list[Row]]:
             "city": d["city"],
             "status": status,
             "result": BUYER_RESULT.get(status or "", "Not checked yet"),
-            "cars": int(r["eligible_count"] or 0) if r and read else None,
+            "cars": int(r["validated_count"] or 0) if r and read else None,
             "floor_cents": r["floor_cents"] if r and read else None,
             "floor_vin": r["floor_vin"] if r and read else None,
             "last_success": d["last_success_date"],
@@ -196,7 +196,7 @@ def dealer_detail(
         {"date": day, "status": by_date[day]["status"] if day in by_date else None,
          "reason": by_date[day]["reason_code"] if day in by_date else None,
          "run_id": by_date[day]["run_id"] if day in by_date else None,
-         "cars": by_date[day]["eligible_count"] if day in by_date else None}
+         "cars": by_date[day]["validated_count"] if day in by_date else None}
         for day in dates
     ]  # fmt: skip
 
@@ -211,7 +211,7 @@ def dealer_detail(
             for d in chart_dates
         ],
         "stock": [
-            int(per_day[d]["eligible_count"] or 0) if per_day[d]["status"] in _READ else None
+            int(per_day[d]["validated_count"] or 0) if per_day[d]["status"] in _READ else None
             for d in chart_dates
         ],
     }
@@ -422,10 +422,10 @@ def trend_series(conn: Connection, days: int = 90) -> dict[str, Any]:
             "anomaly": bool(r["anomaly"]),
         }
         if r["status"] == "REPORTED":
-            stock[d][i] = int(r["eligible_count"])
+            stock[d][i] = int(r["validated_count"])
             floor[d][i] = (int(r["floor_cents"]) / 100) if r["floor_cents"] is not None else None
             floor_vin[d][i] = r["floor_vin"]
-            statewide[i] += int(r["eligible_count"])
+            statewide[i] += int(r["validated_count"])
             reported_count[i] += 1
     return {
         "dates": dates,
@@ -683,10 +683,12 @@ def buyer_payload(conn: Connection, registry_dir: Path) -> dict[str, Any]:
         .where(s.runs.c.status == "PUBLISHED", s.runs.c.started_at >= started)
         .order_by(s.runs.c.started_at)
     )
-    for dealer_id, dealer_status, car_count, later_run_id, _when in later:
+    later_rows = list(later)
+    counts = repos.validated_counts(conn, sorted({str(r[3]) for r in later_rows}))
+    for dealer_id, dealer_status, _eligible, later_run_id, _when in later_rows:
         status[str(dealer_id)] = {
             "status": str(dealer_status),
-            "cars": int(car_count or 0),
+            "cars": counts.get((str(later_run_id), str(dealer_id)), 0),
             "run_id": str(later_run_id),
         }
     dealers: list[dict[str, Any]] = []

@@ -12,12 +12,12 @@
 <section class="grid xl:grid-cols-2 gap-6">
   <div class="panel p-5">
     <h2 class="font-semibold">Floor price by dealer</h2>
-    <p class="text-xs muted mt-1">Lowest advertised cash price per dealer per REPORTED run. Breaks are gaps (dealer not read), never zero.</p>
+    <p class="text-xs muted mt-1">Lowest advertised cash price per dealer on each day we read its website. Breaks are gaps (dealer not read), never zero.</p>
     <div id="floor" class="chart-tall mt-3"></div>
   </div>
   <div class="panel p-5">
-    <h2 class="font-semibold">Eligible stock by dealer</h2>
-    <p class="text-xs muted mt-1">Count of in-scope VINs. The dashed statewide line sums REPORTED dealers only ({{ trends.reported_count | last if trends.reported_count else 0 }} on the last day).</p>
+    <h2 class="font-semibold">Cars by dealer</h2>
+    <p class="text-xs muted mt-1">Cars listed per dealer. The dashed statewide line adds up only the dealers we read that day ({{ trends.reported_count | last if trends.reported_count else 0 }} on the last day).</p>
     <div id="stock" class="chart-tall mt-3"></div>
   </div>
 </section>
@@ -52,10 +52,10 @@
         <tr class="border-t">
           <td class="font-medium">{{ dealer }}</td>
           {% for i in range(trends.dates | length) %}
-          {% set stt = trends.status[dealer][i] %}
+          {% set cell = trends.status[dealer][i] %}{% set stt = cell.status if cell else None %}
           <td class="text-right tabular-nums text-xs">
-            {% if stt == 'REPORTED' %}<div class="good">{{ (trends.floor[dealer][i] * 100) | money if trends.floor[dealer][i] is not none else 'no price' }}</div><div class="muted">{{ trends.stock[dealer][i] }} units</div>
-            {% elif stt %}<span class="chip c-{{ stt | lower }}">{{ stt | replace('_', ' ') }}</span>
+            {% if stt == 'REPORTED' %}<div class="good">{{ (trends.floor[dealer][i] * 100) | money if trends.floor[dealer][i] is not none else 'no price' }}</div><div class="muted">{{ trends.stock[dealer][i] }} cars</div>
+            {% elif stt %}<span class="chip c-{{ stt | lower }}">{{ stt | buyer_result }}</span>
             {% else %}<span class="faint">—</span>{% endif %}
           </td>
           {% endfor %}
@@ -83,7 +83,7 @@ mkChart('stock', () => ({
   grid: { left: 40, right: 20, top: 40, bottom: 30 }, ...axis(),
   yAxis: { type: 'value', minInterval: 1 },
   series: trends.dealers.map(d => ({ name: d, type: 'bar', stack: 'a', data: trends.stock[d] }))
-    .concat([{ name: 'Statewide (REPORTED only)', type: 'line', lineStyle: { type: 'dashed', color: tok('--ink') }, itemStyle: { color: tok('--ink') }, data: trends.statewide }])
+    .concat([{ name: 'Statewide (dealers read)', type: 'line', lineStyle: { type: 'dashed', color: tok('--ink') }, itemStyle: { color: tok('--ink') }, data: trends.statewide }])
 }));
 mkChart('band', () => ({
   tooltip: { trigger: 'item', formatter: p => `<b>${p.data[2]}</b><br>${p.data[0]}<br>${usd(p.data[1])}<br>${p.data[3] || ''}<br>DAP ${p.data[4]} ${p.data[5] ? '· M Sport' : ''}` },

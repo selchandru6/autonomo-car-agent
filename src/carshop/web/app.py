@@ -75,6 +75,9 @@ def create_app(settings: Settings | None = None, engine: Engine | None = None) -
     templates = Jinja2Templates(directory=str(_HERE / "templates"))
     templates.env.filters["money"] = lambda c: fmt_cents(int(c)) if c is not None else "—"
     templates.env.filters["age"] = lambda ts: views.age_label(ts, st.schedule_tz)
+    templates.env.filters["buyer_result"] = lambda code: views.BUYER_RESULT.get(
+        str(code or ""), "Not checked yet"
+    )
     # JSON for inline <script>: not HTML-escaped (Markup), but with the sequences that could
     # close the script tag or form HTML comments escaped, so page data can never break out.
     templates.env.filters["tojson_safe"] = lambda v: Markup(  # noqa: S704 - escaped below

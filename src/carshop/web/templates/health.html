@@ -51,7 +51,7 @@
           <td class="pr-4 font-medium whitespace-nowrap">{{ dealer }}</td>
           {% for d in grid.dates %}{% set c = cells.get(d) %}
           <td class="px-1 py-1">
-            {% if c %}<a href="/pipeline?run_id={{ c.run_id }}&dealer={{ c.dealer_id }}" title="{{ c.status }} {{ c.reason_code or '' }} · {{ c.eligible_count }} eligible" class="cell cell-{{ c.status | lower if c.status in ('REPORTED', 'PARTIAL', 'NOT_REPORTED') else 'no_source' }}">{{ c.eligible_count if c.status == 'REPORTED' else '' }}</a>
+            {% if c %}<a href="/pipeline?run_id={{ c.run_id }}&dealer={{ c.dealer_id }}" title="{{ c.status }} {{ c.reason_code or '' }} · {{ c.validated_count }} listed{% if c.eligible_count > c.validated_count %} · {{ c.eligible_count - c.validated_count }} pending review{% endif %}" class="cell cell-{{ c.status | lower if c.status in ('REPORTED', 'PARTIAL', 'NOT_REPORTED') else 'no_source' }}">{{ c.validated_count if c.status == 'REPORTED' else '' }}</a>
             {% else %}<div class="cell cell-gap" title="no run this day"></div>{% endif %}
           </td>{% endfor %}
         </tr>
@@ -59,7 +59,7 @@
       </tbody>
     </table>
   </div>
-  <div class="mt-3 flex gap-4 text-[11px] muted"><span><i class="legend-cell cell-reported"></i> reported (number = eligible units)</span><span><i class="legend-cell cell-partial"></i> partial</span><span><i class="legend-cell cell-not_reported"></i> not reported</span><span><i class="legend-cell cell-no_source"></i> no source</span><span><i class="legend-cell cell-gap"></i> no run</span></div>
+  <div class="mt-3 flex gap-4 text-[11px] muted"><span><i class="legend-cell cell-reported"></i> reported (number = validated cars listed)</span><span><i class="legend-cell cell-partial"></i> partial</span><span><i class="legend-cell cell-not_reported"></i> not reported</span><span><i class="legend-cell cell-no_source"></i> no source</span><span><i class="legend-cell cell-gap"></i> no run</span></div>
 </section>
 
 <section class="grid xl:grid-cols-3 gap-6">

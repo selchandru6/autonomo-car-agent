@@ -788,6 +788,29 @@ def test_H8_conflict_is_pending_until_approved(env) -> None:  # type: ignore[no-
     assert vin in {unit.row["vin"] for unit in units}
 
 
+def test_pending_review_cars_are_not_counted_on_any_screen(env) -> None:  # type: ignore[no-untyped-def]
+    """Web review 2026-10-20 finding 1: /dealers, the dealer page and Find a car agree (req 5.5)."""
+    from carshop.config.loaders import load_preferences
+    from carshop.web import views
+
+    st, eng, fake = env
+    fake.routes = di_routes(DI_PAGE.replace('"year":"2026"', '"year":"2025"', 1))
+    # The strip and trends read a window back from today, so the run must be recent.
+    rep = go(env, registry(DI), now=datetime.now(UTC), dealer_ids=["di"], notify=False)
+    assert rep.eligible["di"] == 2
+    with read_conn(eng) as conn:
+        assert repos.validated_counts(conn, [rep.run_id]) == {(rep.run_id, "di"): 1}
+        listed = views.dealer_directory(conn)["active"]
+        detail = views.dealer_detail(conn, "di", load_preferences())
+        finder = views.buyer_payload(conn, st.registry_dir)["dealers"]
+        trends = views.trend_series(conn)
+    assert [d["cars"] for d in listed if d["dealer_id"] == "di"] == [1]
+    assert detail is not None and len(detail["units"]) == 1
+    assert detail["strip"][-1]["cars"] == 1 and detail["chart"]["stock"] == [1]
+    assert [d["cars"] for d in finder if d["id"] == "di"] == [1]
+    assert trends["stock"][trends["dealers"][0]] == [1]
+
+
 def test_M1_M3_replay_does_not_duplicate_and_correct_versions(env) -> None:  # type: ignore[no-untyped-def]
     from datetime import UTC, datetime
 

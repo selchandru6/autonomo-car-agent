@@ -31,7 +31,7 @@
   {% if not d.latest %}
   <p class="muted text-sm mt-2">We have not published a check for this dealer yet.</p>
   {% elif d.latest.status not in ('REPORTED', 'PARTIAL') %}
-  <p class="note-warn mt-3 text-sm">We could not read this dealer in its latest check ({{ d.latest.reason_code or d.latest.status }}). That is a gap, not zero cars.</p>
+  <p class="note-warn mt-3 text-sm">{{ d.result }} in the {{ d.latest.snapshot_date }} check. That is a gap, not zero cars. The exact reason is under Technical details.</p>
   {% elif not d.units %}
   <p class="muted text-sm mt-2">No X5 xDrive40i in scope at this dealer in the {{ d.latest.snapshot_date }} check.</p>
   {% else %}
@@ -53,7 +53,7 @@
     {% for c in d.strip %}
     {% if c.status %}
     <a role="listitem" href="/pipeline?run_id={{ c.run_id }}&dealer={{ dealer.dealer_id }}" class="cell cell-{{ c.status | lower if c.status in ('REPORTED', 'PARTIAL', 'NOT_REPORTED') else 'no_source' }}"
-       title="{{ c.date }} · {{ c.status }}{% if c.reason %} {{ c.reason }}{% endif %}{% if c.status == 'REPORTED' %} · {{ c.cars }} cars{% endif %}">{{ c.cars if c.status == 'REPORTED' else '' }}<span class="sr-only">{{ c.date }} {{ c.status }}</span></a>
+       title="{{ c.date }} · {{ c.status | buyer_result }}{% if c.status == 'REPORTED' %} · {{ c.cars }} cars{% endif %}">{{ c.cars if c.status == 'REPORTED' else '' }}<span class="sr-only">{{ c.date }} {{ c.status | buyer_result }}</span></a>
     {% else %}
     <div role="listitem" class="cell cell-gap" title="{{ c.date }} · not checked"><span class="sr-only">{{ c.date }} not checked</span></div>
     {% endif %}
@@ -71,6 +71,7 @@
 <details class="panel p-5">
   <summary class="cursor-pointer font-semibold">Technical details</summary>
   <dl class="grid sm:grid-cols-2 gap-x-8 gap-y-2 text-sm mt-4">
+    {% if d.latest %}<div><dt class="muted text-xs">Latest result</dt><dd><span class="font-mono text-xs">{{ d.latest.status }}{% if d.latest.reason_code %} / {{ d.latest.reason_code }}{% endif %}</span> · run <span class="font-mono text-xs">{{ d.latest.run_id }}</span></dd></div>{% endif %}
     <div><dt class="muted text-xs">Platform</dt><dd>{{ dealer.platform }}</dd></div>
     <div><dt class="muted text-xs">Start URL</dt><dd class="font-mono text-xs break-all">{{ dealer.start_url or 'none on file' }}</dd></div>
     <div><dt class="muted text-xs">Path prefix</dt><dd class="font-mono text-xs">{{ d.path_prefixes | join(', ') or '—' }}</dd></div>

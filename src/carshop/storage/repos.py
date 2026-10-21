@@ -837,11 +837,17 @@ def observation_history(conn: Connection, vin: str) -> list[Row]:
 
 
 def series_by_dealer(conn: Connection, days: int = 90) -> list[Row]:
-    """Per dealer per published run: status, eligible count, floor comparison price, floor VIN."""
+    """Per dealer per published run: status, eligible count, validated count, floor price and VIN.
+
+    eligible_count includes cars still pending review; validated_count is what the screens list.
+    """
     q = text(
         """
         SELECT r.run_id, r.snapshot_date, r.started_at, dr.dealer_id, d.name AS dealer_name, d.city, dr.status, dr.reason_code,
                dr.eligible_count, dr.anomaly,
+               (SELECT COUNT(DISTINCT o.vin) FROM observations o
+                 JOIN inventory_staging st ON st.run_id=o.run_id AND st.dealer_id=o.dealer_id AND st.vin=o.vin
+                 WHERE o.run_id=dr.run_id AND o.dealer_id=dr.dealer_id AND o.rejected=0 AND st.status='VALIDATED') AS validated_count,
                (SELECT MIN(o.comparison_price_cents) FROM observations o
                  JOIN inventory_staging st ON st.run_id=o.run_id AND st.dealer_id=o.dealer_id AND st.vin=o.vin
                  WHERE o.run_id=dr.run_id AND o.dealer_id=dr.dealer_id AND o.rejected=0 AND st.status='VALIDATED') AS floor_cents,
@@ -855,6 +861,25 @@ def series_by_dealer(conn: Connection, days: int = 90) -> list[Row]:
         """
     )
     return _rows(conn.execute(q, {"window": f"-{days} days"}))
+
+
+def validated_counts(conn: Connection, run_ids: Sequence[str]) -> dict[tuple[str, str], int]:
+    """(run_id, dealer_id) -> distinct validated, non-rejected VINs. Pending-review cars are excluded."""
+    if not run_ids:
+        return {}
+    st = s.inventory_staging
+    o = s.observations
+    q = (
+        select(o.c.run_id, o.c.dealer_id, func.count(func.distinct(o.c.vin)))
+        .join(
+            st,
+            and_(st.c.run_id == o.c.run_id, st.c.dealer_id == o.c.dealer_id, st.c.vin == o.c.vin),
+        )
+        .where(o.c.run_id.in_(list(run_ids)), o.c.rejected.is_(False))
+        .where(st.c.status == StagingStatus.VALIDATED.value)
+        .group_by(o.c.run_id, o.c.dealer_id)
+    )
+    return {(str(r), str(d)): int(n) for r, d, n in conn.execute(q)}
 
 
 def price_events_for_run(conn: Connection, run_id: str) -> list[Row]:

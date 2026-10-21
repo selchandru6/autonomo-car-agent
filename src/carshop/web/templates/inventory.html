@@ -37,7 +37,7 @@
 {% if gaps %}
 <div class="note-warn flex flex-wrap gap-x-4 gap-y-1">
   <span class="font-semibold">Coverage warning:</span>
-  {% for d in gaps %}<span><a class="link" href="/dealers/{{ d.dealer_id }}">{{ d.name }}</a> — {{ d.status }} ({{ d.reason_code or '—' }})</span>{% endfor %}
+  {% for d in gaps %}<span><a class="link" href="/dealers/{{ d.dealer_id }}">{{ d.name }}</a> — {{ d.status | buyer_result }}</span>{% endfor %}
   <span class="warn">Their units are absent from this list, not zero.</span>
 </div>
 {% endif %}
