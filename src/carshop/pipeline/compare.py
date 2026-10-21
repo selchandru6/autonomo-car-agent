@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from sqlalchemy import Connection
@@ -25,37 +26,56 @@ def compare_dealer(
     conn: Connection, run_id: str, result: DealerResult, baseline_run_id: str | None
 ) -> CompareSummary:
     """Write lifecycle and price events for one dealer. Only a REPORTED dealer emits anything."""
-    summary = CompareSummary()
-    if result.status is not DealerStatus.REPORTED:
-        return summary  # PARTIAL / NOT_REPORTED / NO_SOURCE never produce missing events
     pending = {vin for vin, _issue in result.review_reasons if vin}
-    today = Snapshot(
-        run_id=run_id,
+    return compare_snapshot(
+        conn,
+        run_id,
+        result.dealer_id,
+        status=result.status,
         prices={
             o.vin: o.comparison_price_cents for o in result.observations if o.vin not in pending
         },
+        held=pending,
+        baseline_run_id=baseline_run_id,
     )
+
+
+def compare_snapshot(
+    conn: Connection,
+    run_id: str,
+    dealer_id: str,
+    *,
+    status: DealerStatus,
+    prices: Mapping[str, int | None],
+    held: set[str],
+    baseline_run_id: str | None,
+) -> CompareSummary:
+    """`compare_dealer` from what the Recorder kept: today's validated prices and held VINs."""
+    summary = CompareSummary()
+    if status is not DealerStatus.REPORTED:
+        return summary  # PARTIAL / NOT_REPORTED / NO_SOURCE never produce missing events
+    today = Snapshot(run_id=run_id, prices=dict(prices))
     baseline = (
         Snapshot(
             run_id=baseline_run_id,
-            prices=repos.reported_prices(conn, baseline_run_id, result.dealer_id),
+            prices=repos.reported_prices(conn, baseline_run_id, dealer_id),
         )
         if baseline_run_id
         else None
     )
-    prior_missing = repos.missing_unverified_vins(conn, result.dealer_id)
+    prior_missing = repos.missing_unverified_vins(conn, dealer_id)
     delta = compute_delta(
-        today, baseline, missing_unverified=prior_missing, held=pending, status=result.status
+        today, baseline, missing_unverified=prior_missing, held=held, status=status
     )
 
     for vin in delta.added:
-        cur = repos.current_lifecycle_state(conn, result.dealer_id, vin)
+        cur = repos.current_lifecycle_state(conn, dealer_id, vin)
         nxt = next_state(cur, seen_today=True, reported=True)
         if nxt is not None:
             repos.record_lifecycle(
                 conn,
                 vin=vin,
-                dealer_id=result.dealer_id,
+                dealer_id=dealer_id,
                 run_id=run_id,
                 from_state=cur,
                 to_state=nxt,
@@ -64,11 +84,11 @@ def compare_dealer(
             )
         summary.added += 1
     for vin in delta.relisted:
-        cur = repos.current_lifecycle_state(conn, result.dealer_id, vin)
+        cur = repos.current_lifecycle_state(conn, dealer_id, vin)
         repos.record_lifecycle(
             conn,
             vin=vin,
-            dealer_id=result.dealer_id,
+            dealer_id=dealer_id,
             run_id=run_id,
             from_state=cur,
             to_state=LifecycleState.RELISTED,
@@ -77,13 +97,13 @@ def compare_dealer(
         )
         summary.relisted += 1
     for vin in delta.missing:
-        cur = repos.current_lifecycle_state(conn, result.dealer_id, vin)
+        cur = repos.current_lifecycle_state(conn, dealer_id, vin)
         nxt = next_state(cur, seen_today=False, reported=True)
         if nxt is not None:  # alert at most once per VIN
             repos.record_lifecycle(
                 conn,
                 vin=vin,
-                dealer_id=result.dealer_id,
+                dealer_id=dealer_id,
                 run_id=run_id,
                 from_state=cur,
                 to_state=nxt,
@@ -95,13 +115,13 @@ def compare_dealer(
     if baseline is not None:
         for vin in today.prices:
             if vin in baseline.prices:
-                cur = repos.current_lifecycle_state(conn, result.dealer_id, vin)
+                cur = repos.current_lifecycle_state(conn, dealer_id, vin)
                 nxt = next_state(cur, seen_today=True, reported=True)
                 if nxt is not None:
                     repos.record_lifecycle(
                         conn,
                         vin=vin,
-                        dealer_id=result.dealer_id,
+                        dealer_id=dealer_id,
                         run_id=run_id,
                         from_state=cur,
                         to_state=nxt,
@@ -114,7 +134,7 @@ def compare_dealer(
             conn,
             run_id=run_id,
             baseline_run_id=baseline_run_id,
-            dealer_id=result.dealer_id,
+            dealer_id=dealer_id,
             vin=pc.vin,
             event=pc.event.value,
             before=pc.before_cents,

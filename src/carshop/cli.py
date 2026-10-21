@@ -217,25 +217,33 @@ def run(
     notify: bool = typer.Option(False, help="Send/write the digest after publishing"),
     rerun_of: str | None = typer.Option(None, help="run_id this run re-does"),
     no_browser: bool = typer.Option(False, help="HTTP only; never render in a browser"),
+    resume: str | None = typer.Option(
+        None, help="Continue an interrupted RUNNING run from its checkpoint (run_id)"
+    ),
 ) -> None:
     """Execute one collection run end to end and publish it."""
-    from carshop.pipeline.run import RunRejected, run_sync
+    import asyncio
+
+    from carshop.pipeline.run import RunRejected, resume_run, run_sync
 
     st, eng = _engine()
     if not migrate.is_current(eng):
         migrate.upgrade(eng)
     trig = Trigger(trigger if not dealer else "manual_dealer")
     try:
-        rep = run_sync(
-            eng,
-            st,
-            trigger=trig,
-            dealer_ids=dealer or None,
-            snapshot_date=date,
-            notify=notify,
-            rerun_of=rerun_of,
-            use_browser=not no_browser,
-        )
+        if resume:
+            rep = asyncio.run(resume_run(eng, st, resume))
+        else:
+            rep = run_sync(
+                eng,
+                st,
+                trigger=trig,
+                dealer_ids=dealer or None,
+                snapshot_date=date,
+                notify=notify,
+                rerun_of=rerun_of,
+                use_browser=not no_browser,
+            )
     except RunRejected as e:
         # A 07:00 catch-up that finds the 06:00 run already published is a no-op, not a failure.
         if trig is Trigger.CATCHUP and "already exists" in str(e):

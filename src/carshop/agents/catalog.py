@@ -25,8 +25,9 @@ class AgentSpec:
     writes: tuple[str, ...]
 
 
-# Until the dealer branch is split into its own subgraph, all five per-dealer agents share the
-# single `dealer_branch` node. Each still owns only its own fields.
+# Parent-graph fields and dealer-subgraph fields share one namespace, so a name is owned once
+# across both graphs. `dealer_branch` is the subgraph's boundary in the parent graph; it hands
+# the Recorder's outcome up, or a stored NOT_REPORTED / PARSER_FAILED if the branch crashed.
 AGENTS: tuple[AgentSpec, ...] = (
     AgentSpec(
         id="A1",
@@ -54,7 +55,7 @@ AGENTS: tuple[AgentSpec, ...] = (
         stage="Collect",
         mode="deterministic",
         graph="dealer subgraph",
-        nodes=("dealer_branch",),
+        nodes=("collector",),
         tools=(
             "safety",
             "fetch.http",
@@ -63,7 +64,7 @@ AGENTS: tuple[AgentSpec, ...] = (
             "fetch.politeness",
             "adapters.detect",
         ),
-        writes=("pages", "fetch_status", "fetch_reason"),
+        writes=("fetch", "pages", "fetch_status", "fetch_reason"),
     ),
     AgentSpec(
         id="A4",
@@ -71,9 +72,9 @@ AGENTS: tuple[AgentSpec, ...] = (
         stage="Extract",
         mode="model-assisted",
         graph="dealer subgraph",
-        nodes=("dealer_branch",),
+        nodes=("extractor", "extractor_packages"),
         tools=("adapters", "extract.llm"),
-        writes=("listings", "model_usage"),
+        writes=("listings", "model_usage", "resolutions"),
     ),
     AgentSpec(
         id="A5",
@@ -81,9 +82,9 @@ AGENTS: tuple[AgentSpec, ...] = (
         stage="Validate",
         mode="deterministic",
         graph="dealer subgraph",
-        nodes=("dealer_branch",),
+        nodes=("validate_listings", "validate_dealer"),
         tools=("domain.vin", "domain.classify", "domain.pricing", "domain.features"),
-        writes=("eligible", "exclusions", "dealer_status", "staging"),
+        writes=("eligible", "exclusions", "staging", "screening", "dealer_status"),
     ),
     AgentSpec(
         id="A6",
@@ -91,9 +92,9 @@ AGENTS: tuple[AgentSpec, ...] = (
         stage="Enrich",
         mode="deterministic",
         graph="dealer subgraph",
-        nodes=("dealer_branch",),
+        nodes=("enricher",),
         tools=("fetch", "adapters", "domain.features"),
-        writes=("enrichment", "feature_evidence"),
+        writes=("enrichment", "ambiguous_text"),
     ),
     AgentSpec(
         id="A7",
@@ -101,9 +102,9 @@ AGENTS: tuple[AgentSpec, ...] = (
         stage="Store",
         mode="deterministic",
         graph="dealer subgraph",
-        nodes=("dealer_branch",),
+        nodes=("recorder", "dealer_branch"),
         tools=("storage.repos", "storage.schema"),
-        writes=("stored", "outcomes"),
+        writes=("stored", "outcome", "outcomes"),
     ),
     AgentSpec(
         id="A8",

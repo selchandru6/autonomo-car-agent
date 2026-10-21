@@ -1,99 +1,89 @@
-"""A3-A7 for one dealer: Collector, Extractor, Validator, Enricher, Recorder.
+"""The dealer subgraph (requirements-mas.md §4.2) and its boundary in the parent graph.
 
-For now one node wraps the existing `run_dealer` and its store transaction unchanged. A
-crash becomes NOT_REPORTED / PARSER_FAILED and a store failure is recorded on that dealer,
-so one dealer never fails the run (requirements §5 item 6).
+collector → (settled) recorder, or → extractor → validate_listings → (no eligible units)
+validate_dealer, or → enricher → extractor_packages → validate_dealer → recorder.
+
+The subgraph is never checkpointed: a resumed run re-runs an unfinished dealer from the start,
+and the Recorder's idempotent store keeps that safe. An exception escaping any node is caught
+here and stored as NOT_REPORTED / PARSER_FAILED, so every dealer ends in a terminal status
+and one dealer never fails the run (requirements §5 items 1 and 6).
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from typing import Any
 
 import structlog
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
-from carshop.domain.codes import DealerStatus, ReasonCode
-from carshop.domain.models import DealerResult
+from carshop.agents.collector import collector, collector_route
+from carshop.agents.enricher import enricher
+from carshop.agents.extractor import extractor, extractor_packages
+from carshop.agents.recorder import crash_result, non_report, outcome, recorder, store
+from carshop.agents.validator import listings_route, validate_dealer, validate_listings
 from carshop.graph.context import RunContext
-from carshop.graph.state import CompareCounts, DealerOutcome, DealerTask, RunState
-from carshop.observability.tracing import span
-from carshop.pipeline.compare import compare_dealer
-from carshop.pipeline.dealer import BranchDeps, run_dealer
-from carshop.storage import repos
-from carshop.storage.db import write_tx
+from carshop.graph.state import DealerOutcome, DealerState, DealerTask, RunState
 
 log = structlog.get_logger(__name__)
 
 
-def _outcome(result: DealerResult, *, stored: bool, compare: CompareCounts | None) -> DealerOutcome:
-    return {
-        "status": result.status.value,
-        "reason": result.reason.value if result.reason else None,
-        "pages_read": result.pages_read,
-        "raw_count": result.raw_count,
-        "eligible_count": result.eligible_count,
-        "duration_ms": result.duration_ms,
-        "cost_usd": result.cost_usd,
-        "stored": stored,
-        "compare": compare,
-    }
+def build_dealer_graph() -> StateGraph[DealerState, RunContext, DealerState, DealerState]:
+    g: StateGraph[DealerState, RunContext, DealerState, DealerState] = StateGraph(
+        DealerState, context_schema=RunContext
+    )
+    g.add_node("collector", collector)
+    g.add_node("extractor", extractor)
+    g.add_node("validate_listings", validate_listings)
+    g.add_node("enricher", enricher)
+    g.add_node("extractor_packages", extractor_packages)
+    g.add_node("validate_dealer", validate_dealer)
+    g.add_node("recorder", recorder)
+    g.add_edge(START, "collector")
+    g.add_conditional_edges("collector", collector_route, ["recorder", "extractor"])
+    g.add_edge("extractor", "validate_listings")
+    g.add_conditional_edges("validate_listings", listings_route, ["enricher", "validate_dealer"])
+    g.add_edge("enricher", "extractor_packages")
+    g.add_edge("extractor_packages", "validate_dealer")
+    g.add_edge("validate_dealer", "recorder")
+    g.add_edge("recorder", END)
+    return g
 
 
-async def dealer_branch(task: DealerTask, runtime: Runtime[RunContext]) -> RunState:
-    try:
-        return await _branch(task, runtime.context)
-    except Exception as e:
-        log.error("dealer branch escaped", dealer=task["dealer_id"], error=type(e).__name__)
-        return {}
+_compiled: dict[str, CompiledStateGraph[Any, Any, Any, Any]] = {}
 
 
-async def _branch(task: DealerTask, ctx: RunContext) -> RunState:
-    dealer = ctx.targets[task["dealer_id"]]
-    assert ctx.http and ctx.artifacts and ctx.gate and ctx.resolver and ctx.sem
-    deps = BranchDeps(settings=ctx.settings, http=ctx.http, browser=ctx.browser, artifacts=ctx.artifacts, gate=ctx.gate,
-                      resolver=ctx.resolver, run_id=ctx.run_id, prior_eligible_count=task["prior_eligible_count"])  # fmt: skip
+def dealer_graph() -> CompiledStateGraph[Any, Any, Any, Any]:
+    if "graph" not in _compiled:
+        _compiled["graph"] = build_dealer_graph().compile(checkpointer=False)
+    return _compiled["graph"]
+
+
+async def dealer_branch(
+    state: DealerState, config: RunnableConfig, runtime: Runtime[RunContext]
+) -> RunState:
+    ctx = runtime.context
+    task = state["task"]
+    dealer_id = task["dealer_id"]
+    assert ctx.sem is not None
     async with ctx.sem:
         try:
-            result = await run_dealer(dealer, deps)
+            final = await dealer_graph().ainvoke({"task": task}, config, context=ctx)
+            result: DealerOutcome = final["outcome"]
         except Exception as e:
-            log.exception("dealer branch crashed", dealer=dealer.dealer_id)
-            result = DealerResult(dealer_id=dealer.dealer_id, status=DealerStatus.NOT_REPORTED, reason=ReasonCode.PARSER_FAILED,
-                                  pages_expected=0, pages_read=0, pages_failed=0, raw_count=0, eligible_count=0, duration_ms=0,
-                                  cost_usd=0.0, anomaly=False, observations=(), exclusions=(), attempts=(), review_reasons=((("", f"crash: {type(e).__name__}"),)))  # fmt: skip
-    usage = {"spend_usd": result.cost_usd}
-    # Storage: one transaction per dealer. A failure here must not cancel the other dealers.
-    try:
-        with span("store", dealer_id=dealer.dealer_id), write_tx(ctx.engine) as conn:
-            baseline = task["baseline_run_id"]
-            repos.store_dealer_result(conn, ctx.run_id, result, baseline_run_id=baseline)
-            if result.robots_hash is not None or result.status is not DealerStatus.NO_SOURCE:
-                repos.record_robots(
-                    conn,
-                    ctx.run_id,
-                    dealer.dealer_id,
-                    dealer.hostname,
-                    result.robots_hash,
-                    "disallowed" if result.reason is ReasonCode.ROBOTS_DISALLOWED else "allowed",
-                )
-            summary = compare_dealer(conn, ctx.run_id, result, baseline)
-        counts: CompareCounts = asdict(summary)  # type: ignore[assignment]
-        return {
-            "outcomes": {dealer.dealer_id: _outcome(result, stored=True, compare=counts)},
-            "model_usage": usage,
-        }
-    except Exception as e:
-        log.exception("dealer store failed", dealer=dealer.dealer_id)
-        try:
-            with write_tx(ctx.engine) as conn:
-                repos.mark_dealer_failed(
-                    conn, ctx.run_id, dealer.dealer_id, f"store failed: {type(e).__name__}"
-                )
-        except Exception:
-            log.exception("could not record dealer store failure", dealer=dealer.dealer_id)
-        failed: DealerOutcome = {
-            **_outcome(result, stored=False, compare=None),
-            "status": DealerStatus.NOT_REPORTED.value,
-            "reason": ReasonCode.PARSER_FAILED.value,
-            "eligible_count": 0,
-        }
-        return {"outcomes": {dealer.dealer_id: failed}, "model_usage": usage}
+            log.exception("dealer branch crashed", dealer=dealer_id)
+            result = _crashed(ctx, task, e)
+    return {"outcomes": {dealer_id: result}}
+
+
+def _crashed(ctx: RunContext, task: DealerTask, error: Exception) -> DealerOutcome:
+    dealer_id = task["dealer_id"]
+    crash = crash_result(dealer_id, error)
+    dealer = ctx.targets.get(dealer_id)
+    if dealer is None:
+        non_report(ctx, dealer_id, f"crash: {type(error).__name__}")
+        return outcome(crash, task["baseline_run_id"], error=type(error).__name__, model_calls=0)
+    stored_error = store(ctx, dealer, crash, task["baseline_run_id"])
+    return outcome(crash, task["baseline_run_id"], error=stored_error, model_calls=0)

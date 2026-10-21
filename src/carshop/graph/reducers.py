@@ -19,13 +19,3 @@ def merge_by_dealer_id[V](
     merged = dict(current or {})
     merged.update(update or {})
     return merged
-
-
-def add_usage(
-    current: Mapping[str, float] | None, update: Mapping[str, float] | None
-) -> dict[str, float]:
-    """Sums model usage counters across branches."""
-    total = dict(current or {})
-    for key, value in (update or {}).items():
-        total[key] = round(total.get(key, 0.0) + value, 6)
-    return total

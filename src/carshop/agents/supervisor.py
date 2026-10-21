@@ -17,6 +17,7 @@ from sqlalchemy import Connection, desc, select, update
 
 from carshop.config.settings import Settings
 from carshop.domain.codes import DealerStatus, RunStatus, Trigger
+from carshop.domain.models import Dealer
 from carshop.extract.llm import ModelClient, OpenAIModel, PackageResolver
 from carshop.fetch.artifacts import ArtifactStore
 from carshop.fetch.browser import BrowserRenderer
@@ -71,10 +72,36 @@ async def supervisor_admit(state: RunState, runtime: Runtime[RunContext]) -> Run
             "run_id": ctx.run_id,
             "snapshot_date": ctx.snapshot_date,
             "trigger": ctx.trigger.value,
+            "started_at": iso(ctx.now),
             "git_sha": git_sha(),
+            "dealer_ids": ctx.dealer_ids,
+            "notify": ctx.notify,
+            "rerun_of": ctx.rerun_of,
+            "label": ctx.label,
+            "use_browser": ctx.use_browser,
         },
         "phase": "admit",
     }
+
+
+async def prepare_run(
+    ctx: RunContext, model: ModelClient | None, targets: list[Dealer], *, browser: bool
+) -> None:
+    """Builds the run's fetchers and the shared model breaker. Also used on resume."""
+    settings = ctx.settings
+    ctx.run_created = True
+    ctx.resolver = PackageResolver(model, run_budget_usd=settings.model_run_budget_usd)
+    ctx.http = ctx.http_factory(
+        user_agent=settings.http_user_agent,
+        timeout_s=settings.http_timeout_s,
+        backoff_s=settings.retry_backoff_s,
+    )
+    ctx.gate = HostGate(settings.per_host_min_pause_s, settings.per_host_max_pause_s)
+    ctx.artifacts = ArtifactStore(settings.snapshots_dir)
+    ctx.sem = asyncio.Semaphore(settings.concurrency_dealers)
+    ctx.targets = {d.dealer_id: d for d in targets}
+    if browser:
+        ctx.browser = await ctx.stack.enter_async_context(BrowserRenderer(settings))
 
 
 async def supervisor_plan(state: RunState, runtime: Runtime[RunContext]) -> RunState:
@@ -89,41 +116,31 @@ async def supervisor_plan(state: RunState, runtime: Runtime[RunContext]) -> RunS
         )
 
     # --- admission (7.10, F10) -------------------------------------------------------
+    model = model_client(settings)
     with write_tx(ctx.engine) as conn:
-        # A run can never legitimately outlive every branch timeout run back to back.
-        waves = -(-max(1, len(reg.active())) // max(1, settings.concurrency_dealers))
-        max_age = settings.branch_timeout_s * waves + 900
-        for stale in repos.reclaim_stale_runs(conn, now=ctx.now, max_age_s=max_age):
-            log.warning("reclaimed stale RUNNING run", run_id=stale)
-        if _scheduled(ctx) and repos.scheduled_run_exists(conn, ctx.snapshot_date):
-            raise RunRejected(f"a scheduled run already exists for {ctx.snapshot_date}")
-        for d in targets:
-            busy = repos.running_run_for_dealer(conn, d.dealer_id)
-            if busy:
-                raise RunRejected(f"dealer {d.dealer_id} is already in RUNNING run {busy}")
-        repos.upsert_dealers(conn, reg.dealers)
-        model = model_client(settings)
-        repos.create_run(conn, run_id=ctx.run_id, snapshot_date=ctx.snapshot_date, trigger=ctx.trigger.value,
-                         config_version=f"{reg.version}:{reg.config_hash}", model_status="ready" if model else "down",
-                         rerun_of=ctx.rerun_of, label=ctx.label, started_at=iso(ctx.now))  # fmt: skip
-        for d in targets:
-            repos.claim_dealer_run(conn, ctx.run_id, d.dealer_id)
+        # A resume that died after this transaction committed finds its run already admitted.
+        if repos.get_run(conn, ctx.run_id) is None:
+            # A run can never legitimately outlive every branch timeout run back to back.
+            waves = -(-max(1, len(reg.active())) // max(1, settings.concurrency_dealers))
+            max_age = settings.branch_timeout_s * waves + 900
+            for stale in repos.reclaim_stale_runs(conn, now=ctx.now, max_age_s=max_age):
+                log.warning("reclaimed stale RUNNING run", run_id=stale)
+            if _scheduled(ctx) and repos.scheduled_run_exists(conn, ctx.snapshot_date):
+                raise RunRejected(f"a scheduled run already exists for {ctx.snapshot_date}")
+            for d in targets:
+                busy = repos.running_run_for_dealer(conn, d.dealer_id)
+                if busy:
+                    raise RunRejected(f"dealer {d.dealer_id} is already in RUNNING run {busy}")
+            repos.upsert_dealers(conn, reg.dealers)
+            repos.create_run(conn, run_id=ctx.run_id, snapshot_date=ctx.snapshot_date, trigger=ctx.trigger.value,
+                             config_version=f"{reg.version}:{reg.config_hash}", model_status="ready" if model else "down",
+                             rerun_of=ctx.rerun_of, label=ctx.label, started_at=iso(ctx.now))  # fmt: skip
+            for d in targets:
+                repos.claim_dealer_run(conn, ctx.run_id, d.dealer_id)
         prior_counts = {d.dealer_id: prior_count(conn, d.dealer_id) for d in targets}
         baselines = {d.dealer_id: repos.last_reported_run(conn, d.dealer_id) for d in targets}
-    ctx.run_created = True
-
-    ctx.resolver = PackageResolver(model, run_budget_usd=settings.model_run_budget_usd)
-    ctx.http = ctx.http_factory(
-        user_agent=settings.http_user_agent,
-        timeout_s=settings.http_timeout_s,
-        backoff_s=settings.retry_backoff_s,
-    )
-    ctx.gate = HostGate(settings.per_host_min_pause_s, settings.per_host_max_pause_s)
-    ctx.artifacts = ArtifactStore(settings.snapshots_dir)
-    ctx.sem = asyncio.Semaphore(settings.concurrency_dealers)
-    ctx.targets = {d.dealer_id: d for d in targets}
-    if ctx.use_browser:
-        ctx.browser = await ctx.stack.enter_async_context(BrowserRenderer(settings))
+    if ctx.http is None:
+        await prepare_run(ctx, model, targets, browser=ctx.use_browser)
 
     # Unhealthy dealers first (7.9): a dealer whose last status was not REPORTED runs early.
     targets.sort(key=lambda d: (prior_counts[d.dealer_id] is not None, d.dealer_id))
@@ -143,7 +160,7 @@ def fan_out(state: RunState) -> list[Send] | str:
     queue = state.get("dealer_queue", [])
     if not queue:
         return "supervisor_cutoff"
-    return [Send("dealer_branch", task) for task in queue]
+    return [Send("dealer_branch", {"task": task}) for task in queue]
 
 
 async def supervisor_cutoff(state: RunState, runtime: Runtime[RunContext]) -> RunState:

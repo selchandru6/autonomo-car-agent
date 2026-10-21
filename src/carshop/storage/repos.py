@@ -262,28 +262,41 @@ def reclaim_stale_runs(conn: Connection, *, now: datetime, max_age_s: float) -> 
         )
     ]
     for run_id in stale:
-        conn.execute(
-            update(s.runs)
-            .where(s.runs.c.run_id == run_id)
-            .values(status=RunStatus.FAILED.value, ended_at=iso(now), label="reclaimed_stale")
-        )
-        conn.execute(
-            s.audit_events.insert().values(
-                entity="run", entity_id=run_id, field="status", old_value=RunStatus.RUNNING.value,
-                new_value=RunStatus.FAILED.value, operator_id="system", event_at=iso(now),
-                reason=f"RUNNING for more than {int(max_age_s)}s; process presumed dead", evidence=None,
-            )
-        )  # fmt: skip
-        conn.execute(
-            update(s.dealer_runs)
-            .where(s.dealer_runs.c.run_id == run_id, s.dealer_runs.c.status == "RUNNING")
-            .values(
-                status=DealerStatus.NOT_REPORTED.value,
-                reason_code=ReasonCode.TIMEOUT.value,
-                finished_at=iso(now),
-            )
+        fail_interrupted_run(
+            conn,
+            run_id,
+            now=now,
+            label="reclaimed_stale",
+            reason=f"RUNNING for more than {int(max_age_s)}s; process presumed dead",
         )
     return stale
+
+
+def fail_interrupted_run(
+    conn: Connection, run_id: str, *, now: datetime, label: str, reason: str
+) -> None:
+    """A RUNNING run that will never finish: FAILED, unfinished dealers released. Audited."""
+    conn.execute(
+        update(s.runs)
+        .where(s.runs.c.run_id == run_id)
+        .values(status=RunStatus.FAILED.value, ended_at=iso(now), label=label)
+    )
+    conn.execute(
+        s.audit_events.insert().values(
+            entity="run", entity_id=run_id, field="status", old_value=RunStatus.RUNNING.value,
+            new_value=RunStatus.FAILED.value, operator_id="system", event_at=iso(now),
+            reason=reason, evidence=None,
+        )
+    )  # fmt: skip
+    conn.execute(
+        update(s.dealer_runs)
+        .where(s.dealer_runs.c.run_id == run_id, s.dealer_runs.c.status == "RUNNING")
+        .values(
+            status=DealerStatus.NOT_REPORTED.value,
+            reason_code=ReasonCode.TIMEOUT.value,
+            finished_at=iso(now),
+        )
+    )
 
 
 def claim_dealer_run(conn: Connection, run_id: str, dealer_id: str) -> None:
