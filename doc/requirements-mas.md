@@ -35,6 +35,8 @@ Model use stays capped by `requirements.md` section 4 ("Agents" row) and section
 
 ## 3. Agents
 
+> **Amended by [`requirements-shortlist.md`](requirements-shortlist.md) v2.2:** a tenth agent, **A10 Matcher** (deterministic), runs between `supervisor_publish` and `notifier`. See that file §6.
+
 Nine agents. Stage names in the third column are the words the live screen uses.
 
 | # | Agent | Stage on screen | Mode | Graph | Responsibility | Tools (existing modules) | Writes |
@@ -68,8 +70,8 @@ START
   → fan_out  ──Send("dealer_branch", {dealer_id}) × N──→ dealer_branch (subgraph)
   → supervisor_cutoff                (wait for all branches or the cutoff)
   → comparator
-  → notifier
-  → supervisor_publish
+  → supervisor_publish               (commit the run PUBLISHED)
+  → notifier                         (digest and backup describe a committed run only)
   → END
 ```
 

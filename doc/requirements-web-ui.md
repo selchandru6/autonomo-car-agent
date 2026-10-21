@@ -41,6 +41,8 @@ Words **MUST**, **MUST NOT**, and **SHOULD** are normative.
 
 ### 3.1 Left menu
 
+> **Amended by [`requirements-shortlist.md`](requirements-shortlist.md) v2.2:** "Shortlist" becomes **My shortlist** with tabs New today, Saved cars, Saved searches, and Ranked for you, plus a New-matches badge.
+
 Four groups, in this order. Labels are what the user sees. Icons are inline SVG from one sprite (section 5.4), never emoji or unicode glyphs.
 
 | Group | Item | Route | Audience | Badge / live state |
@@ -262,7 +264,7 @@ Existing pages keep their content. "Move into shell" means: extend `base.html`, 
 | Today's check | `/check` | **New route** for the content of today's `/?view=check`. Move into shell. Its "dealer" rows link to dealer detail. |
 | Data health & coverage | `/health` | Move into shell. Status cells link to the Pipeline lane for that dealer and run. |
 | Runs & digest | `/runs` | Move into shell. Each run row gets a "Replay" link to `/pipeline?run_id=…`. |
-| Review queue | `/review` | Move into shell. The validate / reject form stays the only write action in the app. |
+| Review queue | `/review` | Move into shell. The page stays read-only: decisions go through `carshop review approve`, `reject`, or `correct` so the operator id cannot be spoofed (code review 2026-10-20). |
 | Live pipeline | `/pipeline` | **New.** Section 8.1. |
 | How it works | `/architecture` | **New.** Section 8.2. |
 | Dealers | `/dealers` | **New.** Section 8.3. |
@@ -333,7 +335,7 @@ From existing tables only (`dealers`, `dealer_runs`, `observations`, `fetch_atte
 ## 9. Technical constraints
 
 - Server-rendered FastAPI + Jinja pages, Alpine for interaction, ECharts for charts, inline SVG for the pipeline graph. No SPA framework. Menu items are ordinary links.
-- The app stays read-only except the existing review decision POST.
+- The app is fully read-only. `POST /review/{id}` keeps returning 403 and pointing to the CLI.
 - New endpoints: `/api/status`, `/api/search`, `/search`, `/check`, `/dealers`, `/dealers/{id}`, `/pipeline`, `/architecture`, plus the pipeline and architecture APIs from `requirements-mas.md` §6.3.
 - Front-end libraries load from pinned CDN versions, as today. For an air-gapped host they can be vendored into `static/`.
 - Page weight: the shell (HTML, CSS, icons, theme script) adds at most 40 KB gzipped to any page.
